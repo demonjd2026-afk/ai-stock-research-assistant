@@ -95,12 +95,15 @@ Linked the GitHub repository to the Databricks workspace using Git Folders (Repo
 4. Click **"Create Git folder"**
 5. Verify `README.md` is visible inside the folder in Databricks Workspace
 
+> **Sync note:** Databricks Git folders do NOT auto-sync.
+> Every time you push to GitHub, manually Pull inside the Git folder in Databricks.
+
 ---
 
 ## ✅ Step 5 — Massive Stocks API Key
 
 **What we did:**
-Registered for a free Massive Stocks API account and stored the API key securely in Databricks Secrets.
+Registered for a free Massive Stocks API account and obtained the API key.
 
 **API details:**
 | Field | Value |
@@ -160,57 +163,101 @@ print("Done — secret stored safely")
 ```python
 key = dbutils.secrets.get(scope="capstone", key="massive_api_key")
 print(f"Secret loaded OK — {len(key)} characters")
+# Output: Secret loaded OK — 32 characters ✅
 ```
 
 **After storing:**
 - Delete the `setup_secrets` notebook (Move to Trash)
 - The secret persists in Databricks Secrets permanently
 
-**How to access the secret in any notebook:**
+**How to access the secret in any notebook going forward:**
 ```python
 api_key = dbutils.secrets.get(scope="capstone", key="massive_api_key")
 ```
 
 > **Security note:** Never hardcode API keys in notebook cells or commit them to Git.
 > Always use `dbutils.secrets.get()` to retrieve secrets at runtime.
+> Use `getpass.getpass()` for any interactive one-time secret entry.
 
 ---
 
-## ✅ Step 7 — Lakebase Schema
+## ✅ Step 7 — Lakebase Project Created
 
 **What we did:**
-Designed and documented the Lakebase (Postgres OLTP) schema for all 8 relational tables.
-The DDL file is stored at `lakebase/05_schema_ddl.sql` in the repo.
+Created a Lakebase (Postgres OLTP) project inside Databricks to store all relational data for the application.
 
-**Tables created:**
-| Table | Purpose |
+**Project settings:**
+| Field | Value |
 |---|---|
-| `users` | Registered users |
-| `watchlists` | Named watchlists per user |
-| `watchlist_tickers` | Tickers within each watchlist |
-| `companies` | Company profiles and fundamentals |
-| `price_snapshots` | OHLCV snapshots per ticker |
-| `news_articles` | Raw news text (also embedded for RAG) |
-| `research_notes` | User-authored notes per ticker |
-| `analysis_reports` | Agent-generated reports per session |
+| Project name | `stock-assistant` |
+| Type | Autoscaling |
+| Branch | `production` (default) |
+| Database | `databricks_postgres` |
+| Postgres version | 17 |
+| Compute | 1 CU, scale to zero |
+| Region | AWS (us-east-2) |
+| History retention | 7 days |
 
-> `REPLICA IDENTITY FULL` is set on all tables to enable Change Data Feed (CDF)
-> for the analytics pipeline in Phase 4.
+**How to navigate to Lakebase:**
+```
+https://YOUR-WORKSPACE-URL/lakebase/projects
+```
+Or use the direct URL:
+```
+https://dbc-291b687e-da89.cloud.databricks.com/lakebase/projects
+```
 
 ---
 
-## ⬜ Next Steps
+## ✅ Step 8 — Lakebase Schema Executed
+
+**What we did:**
+Ran `lakebase/05_schema_ddl.sql` in the Lakebase SQL Editor to create all 8 relational tables in the `stock_assistant` schema.
+
+**Execution result:**
+- 32 statements executed successfully in ~350ms
+- 8 tables created and verified
+
+**Tables created and verified:**
+| # | Table | Size | Purpose |
+|---|---|---|---|
+| 1 | `analysis_reports` | 40 kB | Agent-generated reports per session |
+| 2 | `companies` | 24 kB | Company profiles and fundamentals |
+| 3 | `news_articles` | 32 kB | Raw news text (also embedded for RAG) |
+| 4 | `price_snapshots` | 32 kB | OHLCV snapshots per ticker |
+| 5 | `research_notes` | 32 kB | User-authored notes per ticker |
+| 6 | `users` | 32 kB | Registered users |
+| 7 | `watchlist_tickers` | 32 kB | Tickers within each watchlist |
+| 8 | `watchlists` | 32 kB | Named watchlists per user |
+
+**How to run the schema:**
+1. Navigate to `stock-assistant → production → SQL Editor` in Lakebase
+2. Paste contents of `lakebase/05_schema_ddl.sql`
+3. Click **Run** (not Explain or Analyze)
+4. Run verification query to confirm 8 tables exist:
+
+```sql
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'stock_assistant'
+ORDER BY table_name;
+```
+
+> `REPLICA IDENTITY FULL` is set on all tables to enable Change Data Feed (CDF)
+> which powers the analytics Delta table in Phase 6.
+
+---
+
+## ⬜ Next Steps — Pipeline Build Phases
 
 ```
-⬜ Create Lakebase project in Databricks Catalog
-⬜ Run lakebase/05_schema_ddl.sql to create the 8 tables
-⬜ Phase 2 — Bronze ingestion pipeline (01_bronze_ingestion.py)
-⬜ Phase 3 — Silver transformation (02_silver_transform.py)
-⬜ Phase 4 — Gold aggregates (03_gold_aggregates.py)
-⬜ Phase 5 — Embeddings + Vector Search index (04_embed_and_index.py)
-⬜ Phase 6 — Lakebase CDF → Delta analytics (06_cdf_to_delta.py)
-⬜ Phase 7 — AI Agent with tools (07_agent_tools.py)
-⬜ Phase 8 — Databricks App frontend (app/app.py)
+⬜ Phase 2 — Bronze ingestion pipeline    (pipeline/01_bronze_ingestion.py)
+⬜ Phase 3 — Silver transformation        (pipeline/02_silver_transform.py)
+⬜ Phase 4 — Gold aggregates              (pipeline/03_gold_aggregates.py)
+⬜ Phase 5 — Embeddings + Vector Search   (embeddings/04_embed_and_index.py)
+⬜ Phase 6 — Lakebase CDF → Delta         (cdf/06_cdf_to_delta.py)
+⬜ Phase 7 — AI Agent with tools          (agent/07_agent_tools.py)
+⬜ Phase 8 — Databricks App frontend      (app/app.py)
 ```
 
 ---
@@ -221,11 +268,16 @@ The DDL file is stored at `lakebase/05_schema_ddl.sql` in the repo.
 |---|---|
 | Workspace URL | `dbc-291b687e-da89.cloud.databricks.com` |
 | Cloud | AWS |
-| Edition | Free Edition |
+| Edition | Databricks Free Edition |
 | Unity Catalog | Enabled (default) |
 | Secret scope | `capstone` |
+| Secret key | `massive_api_key` |
 | Git repo | `demonjd2026-afk/ai-stock-research-assistant` |
 | Runtime | Serverless |
+| Lakebase project | `stock-assistant` |
+| Lakebase branch | `production` |
+| Lakebase database | `databricks_postgres` |
+| Lakebase schema | `stock_assistant` |
 
 ---
 
@@ -235,7 +287,20 @@ The DDL file is stored at `lakebase/05_schema_ddl.sql` in the repo.
 - [x] No secrets committed to GitHub
 - [x] `setup_secrets` notebook deleted after use
 - [x] All secrets accessed via `dbutils.secrets.get()` at runtime
-- [x] `.gitignore` should include any local config files
+- [x] `getpass` used for interactive secret entry
+- [x] `.gitignore` covers any local config files
+
+---
+
+## File Structure (current)
+
+```
+ai-stock-research-assistant/
+├── README.md                       ✅ Architecture + tech stack overview
+├── SETUP.md                        ✅ This file — step-by-step setup guide
+└── lakebase/
+    └── 05_schema_ddl.sql           ✅ Lakebase table definitions (8 tables)
+```
 
 ---
 
