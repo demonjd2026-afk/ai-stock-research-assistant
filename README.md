@@ -12,7 +12,7 @@ Built as part of the [Databricks AI Bootcamp Capstone](https://github.com/EcZach
 |---|---|---|
 | **Phase 0** | Workspace setup — GitHub, Databricks, Lakebase, Secrets | ✅ Complete |
 | **Phase 1** | Lakebase schema — 8 tables, CDF enabled | ✅ Complete |
-| **Phase 2** | Bronze ingestion — Massive Stocks API → Delta | ⬜ In Progress |
+| **Phase 2** | Bronze ingestion — Massive Stocks API → Delta | ✅ Complete |
 | **Phase 3** | Silver transformation — cleaning + normalization | ⬜ Pending |
 | **Phase 4** | Gold aggregates — analytics-ready tables | ⬜ Pending |
 | **Phase 5** | Embeddings — news/filings → Vector Search index | ⬜ Pending |
