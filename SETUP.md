@@ -579,17 +579,35 @@ commit_ts       TIMESTAMP — when the change was committed
 captured_at     TIMESTAMP — when CDF pipeline ran
 ```
 
-### Notebook Structure (8 cells)
+### Results
+
+| Table | Rows | Content |
+|---|---|---|
+| `main.analytics.cdf_events` | 50 | 20 companies + 5 prices + 25 news (all as INSERT) |
+| `main.analytics.cdf_summary` | 3 | One row per source_table+operation combination |
+
+### Notebook Structure (9 cells)
 
 | Cell | Purpose |
 |---|---|
 | 0 | Markdown description |
 | 1 | Enable CDF on all 4 Silver tables |
 | 2 | Create `main.analytics` schema + `cdf_events` table |
-| 3 | Read CDF from each Silver table → append to `cdf_events` |
-| 4 | Analytics queries on captured events |
-| 5 | Build `cdf_summary` Gold-style aggregate table |
-| 6 | Summary and architecture note |
+| 3 | Check if table already populated (idempotent guard) |
+| 4 | Initial snapshot — treats existing rows as INSERT events |
+| 5 | Analytics queries on captured events |
+| 6 | Build `cdf_summary` aggregate table |
+| 7 | Summary and architecture note |
+
+### Known Issue & Fix
+
+| Issue | Cause | Fix |
+|---|---|---|
+| `DELTA_MISSING_CHANGE_DATA` on version 0 | CDF only records changes AFTER it is enabled — existing rows at version 0 have no CDF data | Treat all current Silver rows as INSERT events via snapshot function — writes 50 initial events |
+
+### Idempotency
+
+The notebook checks `cdf_events.count()` before running the snapshot. If data already exists it skips the snapshot — safe to re-run anytime.
 
 ### File Structure Update
 
