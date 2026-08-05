@@ -55,8 +55,7 @@ def compare_tickers(tickers):
 
 def get_top_movers(limit=5):
     r = run_sql("SELECT return_rank,ticker,name,close,daily_return_pct,mover_type FROM main.gold.top_movers ORDER BY return_rank LIMIT " + str(limit * 2))
-    return {"gainers": [x for x in r if x.get("mover_type") == "GAINER"][:limit],
-            "losers": [x for x in r if x.get("mover_type") == "LOSER"][:limit]}
+    return {"gainers": [x for x in r if x.get("mover_type") == "GAINER"][:limit], "losers": [x for x in r if x.get("mover_type") == "LOSER"][:limit]}
 
 def search_news(query, num_results=3):
     try:
@@ -72,13 +71,11 @@ def add_to_watchlist(ticker, watchlist_name="My Watchlist"):
     return {"status": "success", "message": ticker.upper() + " added to '" + watchlist_name + "'"}
 
 def save_research_note(ticker, note):
-    clean = note[:500].replace("'", "''")
-    run_sql("INSERT INTO main.agent.research_notes(id,user_email,ticker,note,created_at) VALUES('" + str(uuid.uuid4()) + "','" + USER_EMAIL + "','" + ticker.upper() + "','" + clean + "','" + datetime.now().isoformat() + "')")
+    run_sql("INSERT INTO main.agent.research_notes(id,user_email,ticker,note,created_at) VALUES('" + str(uuid.uuid4()) + "','" + USER_EMAIL + "','" + ticker.upper() + "','" + note[:500].replace("'", "''") + "','" + datetime.now().isoformat() + "')")
     return {"status": "success", "message": "Note saved for " + ticker.upper()}
 
 def save_analysis_report(ticker, report_text):
-    clean = report_text[:1000].replace("'", "''")
-    run_sql("INSERT INTO main.agent.analysis_reports(id,user_email,ticker,report_text,agent_model,generated_at) VALUES('" + str(uuid.uuid4()) + "','" + USER_EMAIL + "','" + ticker.upper() + "','" + clean + "','" + MODEL + "','" + datetime.now().isoformat() + "')")
+    run_sql("INSERT INTO main.agent.analysis_reports(id,user_email,ticker,report_text,agent_model,generated_at) VALUES('" + str(uuid.uuid4()) + "','" + USER_EMAIL + "','" + ticker.upper() + "','" + report_text[:1000].replace("'", "''") + "','" + MODEL + "','" + datetime.now().isoformat() + "')")
     return {"status": "success", "message": "Report saved for " + ticker.upper()}
 
 TOOLS = [
@@ -101,7 +98,7 @@ TMAP = {
 
 def agent(query):
     msgs = [
-        {"role": "system", "content": "You are an AI stock market assistant. Use tools to get current data. Be concise."},
+        {"role": "system", "content": "You are an AI stock market assistant. Use tools to get current data. Be concise and data-driven."},
         {"role": "user", "content": query}
     ]
     for _ in range(5):
@@ -110,79 +107,83 @@ def agent(query):
         if not m.tool_calls:
             return m.content or ""
         msgs.append({"role": "assistant", "content": m.content,
-                     "tool_calls": [{"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}} for tc in m.tool_calls]})
+                     "tool_calls": [{"id": tc.id, "type": "function",
+                                     "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                                    for tc in m.tool_calls]})
         for tc in m.tool_calls:
             fn = tc.function.name
             args = json.loads(tc.function.arguments)
-            res = TMAP[fn](**args) if fn in TMAP else {"error": "Unknown"}
+            res = TMAP[fn](**args) if fn in TMAP else {"error": "Unknown tool"}
             msgs.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(res, default=str)})
     return "Max rounds reached"
 
-def send_fn(question, history):
+def chat(question):
     if not question.strip():
-        return history, ""
-    resp = agent(question)
-    separator = "-" * 50
-    new_entry = "You: " + question + "\n\nAssistant: " + resp + "\n\n" + separator + "\n\n"
-    return history + new_entry, ""
+        return "Please enter a question."
+    return agent(question)
 
-def market_fn():
+def market_summary():
     try:
         rows = run_sql("SELECT t.ticker,t.close,t.daily_return_pct,t.is_up_day,s.sentiment_signal FROM main.gold.ticker_daily_summary t LEFT JOIN main.gold.sentiment_summary s ON t.ticker=s.ticker ORDER BY t.daily_return_pct DESC")
         if not rows:
-            return "No data yet - run pipeline first"
-        out = "Market Summary\n\n"
+            return "No data yet. Run the pipeline first."
+        lines = ["=== Market Summary ===\n"]
         for r in rows:
             try:
-                arrow = "UP" if str(r.get("is_up_day", "")).lower() == "true" else "DOWN"
+                direction = "UP" if str(r.get("is_up_day", "")).lower() == "true" else "DOWN"
                 ret = float(r.get("daily_return_pct") or 0)
-                out = out + r["ticker"] + ": $" + str(r["close"]) + " (" + ("+{:.2f}".format(ret) if ret >= 0 else "{:.2f}".format(ret)) + "%)" + " [" + arrow + "]\n"
+                sign = "+" if ret >= 0 else ""
+                lines.append(r["ticker"] + ": $" + str(r["close"]) + " (" + sign + str(round(ret, 2)) + "%) [" + direction + "]")
             except:
-                out = out + str(r.get("ticker", "?")) + "\n"
-        return out
+                lines.append(str(r.get("ticker", "?")))
+        return "\n".join(lines)
     except Exception as e:
         return "Error: " + str(e)
 
-def watchlist_fn():
+def watchlist():
     try:
         rows = run_sql("SELECT ticker,watchlist FROM main.agent.watchlists WHERE user_email='" + USER_EMAIL + "' ORDER BY added_at DESC LIMIT 10")
         if not rows:
-            return "No tickers in watchlist yet"
-        out = "Watchlist\n\n"
+            return "No tickers in watchlist yet."
+        lines = ["=== Watchlist ===\n"]
         for r in rows:
-            out = out + r["ticker"] + " - " + r["watchlist"] + "\n"
-        return out
+            lines.append(r.get("ticker", "?") + " - " + r.get("watchlist", ""))
+        return "\n".join(lines)
     except Exception as e:
         return "Error: " + str(e)
 
 with gr.Blocks(title="AI Stock Research Assistant") as demo:
-    gr.HTML("<h1>AI Stock Market Research Assistant</h1><p>Powered by Databricks Lakehouse + Llama 3.3 70B</p>")
-
+    gr.HTML("""
+    <div style='padding:10px'>
+        <h2>AI Stock Market Research Assistant</h2>
+        <p>Powered by Databricks Lakehouse and Llama 3.3 70B</p>
+    </div>
+    """)
     with gr.Row():
-        with gr.Column(scale=3):
-            history_box = gr.Textbox(label="Conversation", lines=15, interactive=False, value="Ask a question below to get started.")
-            msg_box = gr.Textbox(label="Your question", placeholder="Ask about stocks, prices, news...")
-            send_btn = gr.Button("Send", variant="primary")
-
-            gr.HTML("<p>Try these:</p>")
+        with gr.Column(scale=2):
+            question_input = gr.Textbox(
+                label="Ask a question",
+                placeholder="What is Apple's stock price? Compare MSFT vs NVDA. Top movers today?",
+                lines=2
+            )
+            answer_output = gr.Textbox(label="Answer", lines=10, interactive=False)
+            ask_btn = gr.Button("Ask Agent", variant="primary")
+            gr.HTML("<hr><p><b>Quick questions:</b></p>")
             with gr.Row():
-                b1 = gr.Button("Apple price + sentiment")
-                b2 = gr.Button("Compare MSFT vs NVDA")
-                b3 = gr.Button("Top movers today")
-
+                q1 = gr.Button("Apple price + sentiment")
+                q2 = gr.Button("Top movers today")
+                q3 = gr.Button("Compare MSFT vs NVDA")
         with gr.Column(scale=1):
-            mkt_box = gr.Textbox(label="Market Summary", lines=10, interactive=False, value="Click Refresh to load")
-            refresh_mkt = gr.Button("Refresh Market")
-            wl_box = gr.Textbox(label="Watchlist", lines=6, interactive=False, value="Click Refresh to load")
-            refresh_wl = gr.Button("Refresh Watchlist")
+            market_out = gr.Textbox(label="Market Summary", lines=10, interactive=False)
+            gr.Button("Refresh Market").click(fn=market_summary, outputs=market_out)
+            watchlist_out = gr.Textbox(label="My Watchlist", lines=8, interactive=False)
+            gr.Button("Refresh Watchlist").click(fn=watchlist, outputs=watchlist_out)
 
-    send_btn.click(fn=send_fn, inputs=[msg_box, history_box], outputs=[history_box, msg_box])
-    msg_box.submit(fn=send_fn, inputs=[msg_box, history_box], outputs=[history_box, msg_box])
-    refresh_mkt.click(fn=market_fn, outputs=mkt_box)
-    refresh_wl.click(fn=watchlist_fn, outputs=wl_box)
-    b1.click(fn=lambda: "What is Apple's current stock price and sentiment?", outputs=msg_box)
-    b2.click(fn=lambda: "Compare MSFT and NVDA - which has better momentum today?", outputs=msg_box)
-    b3.click(fn=lambda: "What are today's top gainers and losers?", outputs=msg_box)
+    ask_btn.click(fn=chat, inputs=question_input, outputs=answer_output)
+    question_input.submit(fn=chat, inputs=question_input, outputs=answer_output)
+    q1.click(fn=lambda: "What is Apple's current stock price and sentiment?", outputs=question_input)
+    q2.click(fn=lambda: "What are today's top gainers and losers?", outputs=question_input)
+    q3.click(fn=lambda: "Compare MSFT and NVDA which has better momentum today?", outputs=question_input)
 
 if __name__ == "__main__":
     demo.launch()

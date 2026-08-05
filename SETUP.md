@@ -806,6 +806,72 @@ app/
 
 ---
 
+## ✅ Workflow Automation — Daily Pipeline
+
+**Job name:** `stock-assistant-daily-pipeline`
+**Job ID:** `620376219385835`
+
+### Tasks (run in sequence)
+
+| # | Task | Notebook | Compute | Depends on |
+|---|---|---|---|---|
+| 1 | `bronze_ingestion` | `pipeline/01_bronze_ingestion` | Serverless | — |
+| 2 | `silver_transform` | `pipeline/02_silver_transform` | Serverless | bronze_ingestion |
+| 3 | `gold_aggregates` | `pipeline/03_gold_aggregates` | Serverless | silver_transform |
+| 4 | `sync_vs_index` | `pipeline/05_sync_index` | Serverless | gold_aggregates |
+
+### Schedule
+
+```
+Cron     : 0 0 22 ? * MON-FRI
+Timezone : Asia/Calcutta (UTC+05:30)
+Meaning  : 10 PM IST every weekday = after US market close (4:30 PM UTC)
+```
+
+### How to trigger manually
+
+Go to **Jobs & Pipelines → stock-assistant-daily-pipeline → Run now**
+
+### Expected runtime
+
+```
+bronze_ingestion  ~13 min  (API rate limit: 5 tickers × 3 endpoints × 13s sleep)
+silver_transform  ~30 sec
+gold_aggregates   ~30 sec
+sync_vs_index     ~2 min
+──────────────────────────
+Total             ~16 min
+```
+
+### What it does end to end
+
+```
+Polygon/Massive API (5 active tickers)
+        ↓ bronze_ingestion
+main.bronze.raw_companies / raw_price_snapshots / raw_news_articles
+        ↓ silver_transform
+main.silver.companies / price_snapshots / news_articles
+        ↓ gold_aggregates
+main.gold.ticker_daily_summary / sector_rankings / sentiment_summary / top_movers
+        ↓ sync_vs_index
+main.silver.news_for_search (refreshed) → Vector Search index synced
+        ↓
+Databricks App sidebar shows fresh prices on next Refresh click
+```
+
+### File Structure Update
+
+```
+pipeline/
+├── 00_setup_config.ipynb       ✅ Ticker registry
+├── 01_bronze_ingestion.ipynb   ✅ Task 1 — Raw ingestion
+├── 02_silver_transform.ipynb   ✅ Task 2 — Clean + enrich
+├── 03_gold_aggregates.ipynb    ✅ Task 3 — Analytics tables
+└── 05_sync_index.ipynb         ✅ Task 4 — VS index sync
+```
+
+---
+
 ## ⬜ Next Steps
 
 ```
