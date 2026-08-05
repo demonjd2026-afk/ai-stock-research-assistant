@@ -15,7 +15,7 @@ Built as part of the [Databricks AI Bootcamp Capstone](https://github.com/EcZach
 | **Phase 2** | Bronze ingestion — Massive Stocks API → Delta | ✅ Complete |
 | **Phase 3** | Silver transformation — cleaning + normalization | ✅ Complete |
 | **Phase 4** | Gold aggregates — analytics-ready tables | ✅ Complete |
-| **Phase 5** | Embeddings — news/filings → Vector Search index | 🔄 In Progress |
+| **Phase 5** | Embeddings — news/filings → Vector Search index | ✅ Complete |
 | **Phase 6** | CDF pipeline — Lakebase → Delta analytics table | ✅ Complete |
 | **Phase 7** | AI Agent — tools for read + write actions | ✅ Complete |
 | **Phase 8** | Databricks App — Gradio frontend | ⬜ Pending |
@@ -182,6 +182,21 @@ LLM synthesizes response (repeats up to 5 rounds)
 Final response returned to user
 ```
 
+### Confirmed Working (Test Run)
+
+| Query | Tools Called | Result |
+|---|---|---|
+| Apple price + sentiment | `get_price_data` + `get_sentiment` + `add_to_watchlist` | AAPL $303.42, -1.99%, neutral sentiment |
+| MSFT vs NVDA comparison | `compare_tickers` + `save_research_note` + `add_to_watchlist` | NVDA wins (+4.53% vs +2.42%) |
+| Top movers today | `get_top_movers` | META +4.98% top gainer, AAPL -1.99% loser |
+| AI news search + note | `search_news` (RAG) + `save_research_note` | Semantic search returned NVDA AI articles |
+| Add to watchlist | `add_to_watchlist` × 2 | AAPL + MSFT added to Tech Watchlist |
+
+**Agent write tables after test run:**
+- `main.agent.watchlists` — 4 rows
+- `main.agent.research_notes` — 2 rows (NVDA momentum + AI sector notes)
+- `main.agent.analysis_reports` — 0 rows (agent chose not to write a report)
+
 ---
 
 ## 🚀 Setup & Deployment
@@ -218,14 +233,15 @@ api_key = dbutils.secrets.get(scope="capstone", key="massive_api_key")
 ### Step 3 — Run notebooks in order
 
 ```
-01_bronze_ingestion.py      →  ingest raw market data into Delta
-02_silver_transform.py      →  normalize and deduplicate
-03_gold_aggregates.py       →  build analytics aggregates
-04_embed_and_index.py       →  create Vector Search index from news text
-05_schema_ddl.sql           →  create Lakebase tables (run in SQL editor)
-06_cdf_to_delta.py          →  start CDF stream into analytics Delta table
-07_agent_tools.py           →  register agent and tools
-app.py                      →  deploy via Databricks Apps
+pipeline/00_setup_config.ipynb      →  configure ticker registry (Unity Catalog)
+pipeline/01_bronze_ingestion.ipynb  →  ingest raw market data (Polygon API)
+pipeline/02_silver_transform.ipynb  →  clean, deduplicate, enrich
+pipeline/03_gold_aggregates.ipynb   →  build 4 analytics aggregates
+embeddings/04_embed_and_index.ipynb →  create Vector Search index (BGE Large)
+lakebase/05_schema_ddl.sql          →  create Lakebase tables (Lakebase SQL Editor)
+cdf/06_cdf_to_delta.ipynb           →  CDF → Delta analytics table
+agent/07_agent_tools.ipynb          →  AI Agent with 8 tools
+app/app.py                          →  deploy via Databricks Apps (Phase 8)
 ```
 
 ### Step 4 — Deploy the Databricks App

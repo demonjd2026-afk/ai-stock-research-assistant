@@ -699,6 +699,42 @@ def run_agent(user_query):
 | 12 | Verify write tables |
 | 13 | Summary |
 
+### Actual Agent Test Results
+
+**Test 1 — Apple price + sentiment:**
+- Called `get_price_data` → AAPL close $303.42, daily_return -1.99%
+- Called `get_sentiment` → neutral signal, high confidence, 10 articles
+- Proactively called `add_to_watchlist` without being asked
+
+**Test 2 — MSFT vs NVDA comparison:**
+- Called `compare_tickers` → NVDA wins (+4.53%) vs MSFT (+2.42%)
+- Proactively saved research note + added NVDA to watchlist
+
+**Test 3 — Top movers:**
+- META +4.98% top gainer, AAPL -1.99% only loser
+
+**Test 4 — AI news RAG search:**
+- Called `search_news` with real Vector Search semantic query
+- Retrieved NVDA AI article, saved intelligent research note from content
+
+**Test 5 — Watchlist write:**
+- Added AAPL + MSFT to "Tech Watchlist" in 2 separate parallel tool calls
+
+### Write Table Results
+
+| Table | Rows | Content |
+|---|---|---|
+| `main.agent.watchlists` | 4 | AAPL (My Watchlist), NVDA (My Watchlist), AAPL + MSFT (Tech Watchlist) |
+| `main.agent.research_notes` | 2 | NVDA momentum note + NVDA AI sector note |
+| `main.agent.analysis_reports` | 0 | Agent chose not to write a report (correct behavior) |
+
+### Known Issues & Fixes
+
+| Issue | Cause | Fix |
+|---|---|---|
+| `UNSUPPORTED_DATATYPE TEXT` | Delta doesn't support TEXT type | Replace `TEXT` with `STRING` in all CREATE TABLE statements |
+| `databricks-vectorsearch deprecated` | Package renamed to `databricks-ai-search` | Updated pip install + import to use new name |
+
 ### File Structure Update
 
 ```
