@@ -111,13 +111,6 @@ def agent(query):
             msgs.append({"role":"tool","tool_call_id":tc.id,"content":json.dumps(res,default=str)})
     return "Max rounds reached"
 
-def chat_fn(message, history):
-    if not message.strip():
-        return history, ""
-    response = agent(message)
-    history = history + [[message, response]]
-    return history, ""
-
 def market_fn():
     try:
         rows=sql("SELECT t.ticker,t.close,t.daily_return_pct,t.is_up_day,s.sentiment_signal FROM main.gold.ticker_daily_summary t LEFT JOIN main.gold.sentiment_summary s ON t.ticker=s.ticker ORDER BY t.daily_return_pct DESC")
@@ -144,23 +137,39 @@ with gr.Blocks() as demo:
     gr.HTML("<h1>📈 AI Stock Market Research Assistant</h1><p><i>Powered by Databricks Lakehouse + Llama 3.3 70B</i></p>")
     with gr.Row():
         with gr.Column(scale=3):
-            chatbot  = gr.Chatbot(height=400, label="Chat")
+            history_box = gr.Textbox(label="Conversation", lines=15, interactive=False,
+                                     value="Ask a question below to get started...")
+            msg  = gr.Textbox(label="Your question", placeholder="Ask about stocks...")
+            send = gr.Button("Send 🚀", variant="primary")
+            gr.HTML("<p><b>Try:</b></p>")
             with gr.Row():
-                msg  = gr.Textbox(placeholder="Ask about stocks...", show_label=False, scale=5)
-                send = gr.Button("Send 🚀", scale=1, variant="primary")
-            gr.HTML("<p><b>Try these:</b></p>")
-            with gr.Row():
-                gr.Button("Apple price + sentiment").click(lambda:"What is Apple's price and sentiment?", outputs=msg)
-                gr.Button("Compare MSFT vs NVDA").click(lambda:"Compare MSFT and NVDA momentum", outputs=msg)
-                gr.Button("Top movers").click(lambda:"What are today's top gainers and losers?", outputs=msg)
+                b1 = gr.Button("Apple price + sentiment")
+                b2 = gr.Button("Compare MSFT vs NVDA")
+                b3 = gr.Button("Top movers")
         with gr.Column(scale=1):
             mkt=gr.Textbox(value="Click Refresh ↓", label="Market Summary", lines=8, interactive=False)
             gr.Button("🔄 Refresh Market").click(market_fn, outputs=mkt)
             wl=gr.Textbox(value="Click Refresh ↓", label="Watchlist", lines=6, interactive=False)
             gr.Button("🔄 Refresh Watchlist").click(watchlist_fn, outputs=wl)
 
-    send.click(chat_fn, [msg, chatbot], [chatbot, msg])
-    msg.submit(chat_fn, [msg, chatbot], [chatbot, msg])
+    # Chat history as plain text
+    conv_state = []
+    def send_fn(question, history_text):
+        if not question.strip():
+            return history_text, ""
+        resp = agent(question)
+        new_line = f"You: {question}
+Assistant: {resp}
+{'-'*50}
+"
+        return history_text + "
+" + new_line, ""
+
+    send.click(send_fn, [msg, history_box], [history_box, msg])
+    msg.submit(send_fn, [msg, history_box], [history_box, msg])
+    b1.click(lambda: "What is Apple's price and sentiment?", outputs=msg)
+    b2.click(lambda: "Compare MSFT and NVDA momentum today", outputs=msg)
+    b3.click(lambda: "What are today's top gainers and losers?", outputs=msg)
 
 if __name__ == "__main__":
     demo.launch()
