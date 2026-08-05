@@ -19,6 +19,7 @@ Built as part of the [Databricks AI Bootcamp Capstone](https://github.com/EcZach
 | **Phase 6** | CDF pipeline — Lakebase → Delta analytics table | ✅ Complete |
 | **Phase 7** | AI Agent — tools for read + write actions | ✅ Complete |
 | **Phase 8** | Databricks App — Gradio frontend | ✅ Complete |
+| **Workflow** | Daily automated pipeline (Mon-Fri 10 PM IST) | ✅ Complete |
 
 ---
 
@@ -193,9 +194,26 @@ Final response returned to user
 | Add to watchlist | `add_to_watchlist` × 2 | AAPL + MSFT added to Tech Watchlist |
 
 **Agent write tables after test run:**
-- `main.agent.watchlists` — 4 rows
+- `main.agent.watchlists` — 4 rows (MSFT + AAPL in Tech Watchlist, NVDA + AAPL in My Watchlist)
 - `main.agent.research_notes` — 2 rows (NVDA momentum + AI sector notes)
 - `main.agent.analysis_reports` — 0 rows (agent chose not to write a report)
+
+### Live App Output (confirmed working)
+
+```
+Market Summary (Refresh Market button):
+  META:  $590.24 (+4.98%) [UP]
+  NVDA:  $206.64 (+4.53%) [UP]
+  GOOGL: $377.65 (+2.56%) [UP]
+  MSFT:  $492.81 (+2.48%) [UP]
+  AAPL:  $303.42 (-1.99%) [DOWN]
+
+Watchlist (Refresh Watchlist button):
+  MSFT - Tech Watchlist
+  AAPL - Tech Watchlist
+  NVDA - My Watchlist
+  AAPL - My Watchlist
+```
 
 ---
 

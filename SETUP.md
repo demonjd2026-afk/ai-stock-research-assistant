@@ -806,6 +806,53 @@ app/
 
 ---
 
+## ✅ Unity Catalog Grants
+
+**File:** `lakebase/grants.sql`
+
+### When to run
+
+Run this file **once** in the following situations:
+
+| When | Why |
+|---|---|
+| After running all pipeline notebooks for the first time | App cannot see tables without grants |
+| After creating a new schema or table | New objects need explicit grants |
+| Before deploying or testing the Databricks App | App runs under `account users` identity |
+
+### How to run
+
+1. Go to **SQL Editor** in Databricks
+2. Make sure the warehouse is **Serverless**
+3. Paste contents of `lakebase/grants.sql`
+4. Select all → Click **Run selected**
+5. All statements should return **OK**
+
+### What is granted
+
+| Grant | Tables | Privilege |
+|---|---|---|
+| Catalog access | `main` | `USE CATALOG` |
+| Schema access | `main.gold`, `main.silver`, `main.agent`, `main.analytics`, `main.bronze`, `main.config` | `USE SCHEMA` |
+| Gold tables | `ticker_daily_summary`, `sentiment_summary`, `top_movers`, `sector_rankings` | `SELECT` |
+| Silver tables | `news_articles`, `news_for_search` | `SELECT` |
+| Agent tables | `watchlists`, `research_notes`, `analysis_reports` | `SELECT + MODIFY` |
+| Config table | `ticker_config` | `SELECT` |
+
+### Why `MODIFY` instead of `INSERT`
+
+Unity Catalog metastore version 1.0 (used on Free Edition) does not support `INSERT` as a table privilege. Use `MODIFY` which covers INSERT, UPDATE, and DELETE on Delta tables.
+
+### Known issue
+
+```
+ErrorClass=INVALID_PARAMETER_VALUE.PRIVILEGE_NOT_APPLICABLE_TO_ENTITY
+Privilege INSERT is not applicable to this entity
+```
+**Fix:** Replace `INSERT` with `MODIFY` in all GRANT statements.
+
+---
+
 ## ✅ Workflow Automation — Daily Pipeline
 
 **Job name:** `stock-assistant-daily-pipeline`
@@ -872,7 +919,21 @@ pipeline/
 
 ---
 
-## ⬜ Next Steps
+## ✅ Project Complete
+
+```
+✅ Phase 0  — Workspace setup
+✅ Phase 1  — Lakebase schema (8 tables)
+✅ Phase 2  — Bronze ingestion (Polygon API)
+✅ Phase 3  — Silver transformation
+✅ Phase 4  — Gold aggregates (4 tables)
+✅ Phase 5  — Embeddings + Vector Search
+✅ Phase 6  — CDF → Delta analytics
+✅ Phase 7  — AI Agent (8 tools: 5 read + 3 write)
+✅ Phase 8  — Databricks App (live, market data loading)
+✅ Workflow — Daily automated pipeline (Mon-Fri 10 PM IST)
+✅ Grants   — Unity Catalog access for App
+```
 
 ```
 ✅ Phase 3 — Silver transformation    (pipeline/02_silver_transform.ipynb)
