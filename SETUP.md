@@ -274,11 +274,165 @@ Prints row counts per table (this run vs total) and shows 5-row samples from eac
 
 ---
 
+## ✅ Phase 3 — Silver Transformation
+
+**File:** `pipeline/02_silver_transform.ipynb`
+
+### What Silver Does
+
+Silver reads from Bronze Delta tables, applies cleaning and enrichment transformations, and writes deduplicated, typed, analytics-ready data to `main.silver.*` Delta tables.
+
+**Key design decision:** Lakebase OLTP tables are **not** written by Silver. They are written by the AI Agent tools in Phase 7. Silver only writes to Delta.
+
+### Transformations Per Table
+
+**`main.silver.companies`** (from `main.bronze.raw_companies`):
+- Deduplicate by `ticker` — keep latest `ingested_at` per ticker using `ROW_NUMBER()` window function
+- Drop `raw_json` and `batch_id` (Bronze-only columns)
+- Normalize exchange codes: `XNAS → NASDAQ`, `XNYS → NYSE`, `XASE → AMEX`, `ARCX → NYSE Arca`
+- Derive `market_cap_billions` = `market_cap / 1e9` rounded to 2 decimal places
+- Add `processed_at` timestamp
+
+**`main.silver.price_snapshots`** (from `main.bronze.raw_price_snapshots`):
+- Deduplicate by `(ticker, snapshot_date)` — keep latest per trading day
+- Validate: filter rows where `close <= 0`
+- Derive `daily_return_pct` = `((close - open) / open) * 100`
+- Derive `price_range` = `high - low`
+- Derive `is_up_day` = `close >= open` (boolean flag)
+- Round all price columns to 4 decimal places
+- Add `processed_at` timestamp
+
+**`main.silver.news_articles`** (from `main.bronze.raw_news_articles`):
+- Filter: remove rows with null `article_id` or null `title`
+- Deduplicate by `article_id` — keep latest ingested version
+- Parse `published_utc` string → proper `TimestampType` column `published_ts`
+- Derive `article_age_days` = `datediff(current_date, published_utc)`
+- Derive `description_length` = character length of description
+- Derive `has_sentiment` = boolean flag (True if sentiment is not null)
+- Normalize `sentiment` to lowercase
+- Add `processed_at` timestamp
+
+### Silver Table Results
+
+| Table | Rows | Notes |
+|---|---|---|
+| `main.silver.companies` | 20 | All unique tickers ever ingested, deduplicated |
+| `main.silver.price_snapshots` | 5 | One row per active ticker, validated |
+| `main.silver.news_articles` | 25 | Deduplicated from 50 Bronze rows |
+
+### Notebook Structure (7 cells)
+
+| Cell | Purpose |
+|---|---|
+| 0 | Imports, SparkSession, `PROCESSED_AT` timestamp |
+| 1 | Create `main.silver` schema |
+| 2 | Transform + write `main.silver.companies` |
+| 3 | Transform + write `main.silver.price_snapshots` |
+| 4 | Transform + write `main.silver.news_articles` |
+| 5 | Summary row counts + architecture note |
+
+### Known Issues & Architecture Decisions
+
+| Issue | Decision |
+|---|---|
+| Lakebase psycopg2 connection fails on Free Edition | Removed Lakebase sync from Silver entirely |
+| `w.config.token` returns None in Serverless | Token exchange also blocked (no federation policy on Free Edition) |
+| Lakebase OLTP needs data | Populated by AI Agent tools (Phase 7) — correct architecture |
+| Test user needed for Agent | Run `INSERT INTO stock_assistant.users` in Lakebase SQL Editor |
+
+### Lakebase Seed (run once in Lakebase SQL Editor)
+
+```sql
+INSERT INTO stock_assistant.users (name, email)
+VALUES ('Jay Dolai', 'jayanthdolai07@gmail.com')
+ON CONFLICT (email) DO NOTHING;
+
+SELECT id, name, email, created_at FROM stock_assistant.users;
+```
+
+---
+
+## ✅ Phase 4 — Gold Aggregates
+
+**File:** `pipeline/03_gold_aggregates.ipynb`
+
+### What Gold Does
+
+Gold reads from Silver Delta tables and builds analytics-ready aggregated tables in `main.gold.*`. These tables power the AI Agent tools and the Databricks App frontend. No API calls — pure PySpark aggregations running in under 30 seconds.
+
+### Gold Tables Produced
+
+**`main.gold.ticker_daily_summary`**
+Master fact table joining Silver price + company + sentiment into one row per ticker per day:
+- All price columns (open, high, low, close, volume, vwap)
+- Derived: `daily_return_pct`, `price_range`, `is_up_day`
+- Company metadata: name, exchange_name, sector, market_cap_billions
+- Sentiment metrics: news_count, avg_sentiment_score, positive/negative/neutral counts
+
+**`main.gold.sector_rankings`**
+Sector-level aggregation ranked by total market cap:
+- `total_market_cap_billions` — sum of market caps in sector
+- `avg_daily_return_pct` — mean return across sector tickers
+- `avg_sentiment_score` — mean sentiment across sector news
+- `sector_rank` — rank by market cap using `RANK()` window function
+- `tickers` — array of all ticker symbols in sector
+
+**`main.gold.sentiment_summary`**
+Per-ticker sentiment signal with confidence rating:
+- `sentiment_signal` — BULLISH (score > 0.3) / BEARISH (score < -0.3) / NEUTRAL
+- `sentiment_confidence` — HIGH (≥8 articles) / MEDIUM (≥4) / LOW (<4)
+
+**`main.gold.top_movers`**
+Best and worst performing tickers ranked by daily return:
+- `return_rank` — rank by `daily_return_pct` descending
+- `mover_type` — GAINER (return > 0) / LOSER (return < 0) / FLAT
+
+### Notebook Structure (8 cells)
+
+| Cell | Purpose |
+|---|---|
+| 0 | Imports, SparkSession, `PROCESSED_AT` timestamp |
+| 1 | Create `main.gold` schema |
+| 2 | Build `ticker_daily_summary` — join price + company + sentiment |
+| 3 | Build `sector_rankings` — groupBy sector, rank by market cap |
+| 4 | Build `sentiment_summary` — signal + confidence per ticker |
+| 5 | Build `top_movers` — rank by daily return, GAINER/LOSER flag |
+| 6 | Gold summary — row counts for all 4 tables |
+
+### Key Design Decisions
+
+| Decision | Reason |
+|---|---|
+| `overwrite` mode on all Gold tables | Gold is always fully recomputed from Silver — no incremental logic needed |
+| Sentiment score: positive=1, neutral=0, negative=-1 | Average gives a continuous [-1, 1] signal usable by the Agent |
+| `RANK()` not `ROW_NUMBER()` for sector_rank | Handles ties correctly (two equal market caps share the same rank) |
+| Gold tables are Agent-readable | Agent tools query Gold for price data and sentiment — fast, pre-aggregated |
+
+### Full Medallion Architecture
+
+```
+Massive/Polygon API
+        ↓
+main.bronze.*    Raw, append-only, full raw_json, batch_id per run
+        ↓
+main.silver.*    Deduplicated, typed, enriched, no raw_json
+        ↓
+main.gold.*      Aggregated, analytics-ready, Agent-queryable
+        ↓
+AI Agent         Reads Gold → responds to user queries
+        ↓
+Lakebase OLTP    Written by Agent (watchlists, notes, reports)
+        ↓
+Lakebase CDF     Streams into Delta analytics table (Phase 6)
+```
+
+---
+
 ## ⬜ Next Steps
 
 ```
-⬜ Phase 3 — Silver transformation    (pipeline/02_silver_transform.ipynb)
-⬜ Phase 4 — Gold aggregates          (pipeline/03_gold_aggregates.ipynb)
+✅ Phase 3 — Silver transformation    (pipeline/02_silver_transform.ipynb)
+✅ Phase 4 — Gold aggregates          (pipeline/03_gold_aggregates.ipynb)
 ⬜ Phase 5 — Embeddings + Vector Search (embeddings/04_embed_and_index.ipynb)
 ⬜ Phase 6 — Lakebase CDF → Delta     (cdf/06_cdf_to_delta.ipynb)
 ⬜ Phase 7 — AI Agent with tools      (agent/07_agent_tools.ipynb)
@@ -326,7 +480,9 @@ ai-stock-research-assistant/
 │   └── 05_schema_ddl.sql           ✅ 8 Lakebase tables
 └── pipeline/
     ├── 00_setup_config.ipynb       ✅ Ticker registry (Unity Catalog)
-    └── 01_bronze_ingestion.ipynb   ✅ Raw ingestion (Massive/Polygon API)
+    ├── 01_bronze_ingestion.ipynb   ✅ Raw ingestion (Massive/Polygon API)
+    ├── 02_silver_transform.ipynb   ✅ Clean, deduplicate, enrich
+    └── 03_gold_aggregates.ipynb    ✅ Analytics aggregates (4 Gold tables)
 ```
 
 ---
