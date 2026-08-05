@@ -13,6 +13,16 @@
 
 ---
 
+## ⚠️ Free Edition Constraints & Workarounds
+
+| # | Constraint | Impact | Workaround |
+|---|---|---|---|
+| 1 | `api.massive.com` blocked by outbound domain filter | Cannot call Massive API directly | Use `api.polygon.io` — same key (Massive rebranded from Polygon.io Oct 2025) |
+| 2 | Massive **free tier = end-of-day (EOD) data only** | No real-time intraday prices | Pipeline ingests previous day's OHLCV close via `/prev` endpoint — real, accurate data, just not intraday |
+| 3 | OAuth JWT federation unavailable | Cannot connect Lakebase CDF to Delta directly | Delta Lake native `enableChangeDataFeed` used — identical CDC pattern |
+
+---
+
 ## ✅ Step 1 — GitHub Repository
 
 | Field | Value |
@@ -68,6 +78,8 @@ Databricks Free Edition restricts outbound internet by default. LinkedIn verific
 
 > **Note:** `api.massive.com` is blocked by Databricks Free Edition network filter.
 > Use `api.polygon.io` — same API key works (Massive rebranded from Polygon.io Oct 2025).
+
+> **Data tier note:** Massive's **free subscription tier provides end-of-day (EOD) data only** — not real-time intraday prices. Real-time tick-level trades and quotes require a paid Massive plan. This pipeline ingests the **previous trading day's closing OHLCV** via the `/v2/aggs/ticker/{ticker}/prev` endpoint. The pipeline is scheduled to run after US market close (10 PM IST / 4:30 PM UTC) so the EOD data is always current as of the latest trading day.
 
 ---
 
@@ -204,6 +216,7 @@ Loads the Massive API key securely from Databricks Secrets:
 ```python
 API_KEY = dbutils.secrets.get(scope="capstone", key="massive_api_key")
 BASE_URL = "https://api.polygon.io"  # api.massive.com blocked on Free Edition
+# Note: Massive free tier = EOD data (prev day close). Real-time requires paid plan.
 ```
 Auth is passed as a query parameter `?apiKey=KEY` — not a Bearer header.
 

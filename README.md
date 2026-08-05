@@ -1,9 +1,23 @@
 # 📈 AI Stock Market Research Assistant
 
-> An AI-powered stock research platform built on the **Databricks Lakehouse** — combining real-time market data ingestion via the Massive Stocks API (Polygon.io), semantic RAG over financial news, a multi-tool AI Agent, and a live Gradio frontend deployed on Databricks Apps.
+> An AI-powered stock research platform built on the **Databricks Lakehouse** — combining end-of-day market data ingestion via the Massive Stocks API (Polygon.io), semantic RAG over financial news, a multi-tool AI Agent, and a live Gradio frontend deployed on Databricks Apps.
 
 **GitHub:** [demonjd2026-afk/ai-stock-research-assistant](https://github.com/demonjd2026-afk/ai-stock-research-assistant)  
 **Capstone:** [Databricks AI Bootcamp](https://github.com/EcZachly/databricks-ai-bootcamp-capstone) by Zach Wilson
+
+---
+
+## ⚠️ Free Edition Constraints & Workarounds
+
+This project was built entirely on **Databricks Free Edition**. Three notable constraints were encountered:
+
+| # | Constraint | Impact | Workaround |
+|---|---|---|---|
+| 1 | `api.massive.com` blocked by outbound domain filter | Cannot call Massive API directly | Use `api.polygon.io` — same API key works (Massive rebranded from Polygon.io in Oct 2025) |
+| 2 | Massive **free tier = end-of-day data only** | No intraday/real-time prices | Pipeline ingests previous trading day's OHLCV close prices — standard for daily pipelines |
+| 3 | OAuth JWT federation unavailable | Cannot connect Lakebase CDF to Delta directly | Delta Lake's native `enableChangeDataFeed` used — architecturally identical CDC pattern |
+
+> **On data recency:** Massive's free subscription tier provides end-of-day (EOD) snapshots, not real-time tick data. Real-time trades and quotes require a paid Massive plan. The pipeline runs daily after US market close (10 PM IST / 4:30 PM UTC) and ingests the previous day's closing prices — this is accurate, real market data, just not intraday.
 
 ---
 
@@ -28,7 +42,8 @@
 
 ```
 Massive/Polygon Stocks API  (20 tickers — 5 sectors)
-           │  REST · OHLCV · News · Fundamentals
+           │  REST · EOD OHLCV · News · Fundamentals
+           │  Free tier: end-of-day data (prev trading day close)
            ▼
     ┌─────────────┐  PySpark append
     │   BRONZE    │  raw_companies · raw_price_snapshots · raw_news_articles
@@ -78,114 +93,47 @@ Massive/Polygon Stocks API  (20 tickers — 5 sectors)
     └──────────┬───────────────┘
                │ Delta CDF
                ▼
-    ┌──────────────────────────┐
-    │  main.analytics          │
-    │  cdf_events · cdf_summary│
-    └──────────────────────────┘
 ```
 
 ---
 
-## ✅ Capstone Requirements
-
-| Requirement | Implementation |
-|---|---|
-| **Spark data pipeline** | Bronze → Silver → Gold via PySpark — medallion architecture |
-| **Third-party API** | Massive/Polygon REST API — OHLCV, fundamentals, news (20 tickers) |
-| **Unstructured data + RAG** | News articles embedded via BGE Large → Databricks AI Search index |
-| **Databricks App** | Gradio chat UI hosted on Databricks Apps with live market data |
-| **AI Agent with tools** | Llama 3.3 70B + 8 function-calling tools — reads Gold, writes to Delta |
-| **Lakebase CDF → Delta** | Delta CDF on Silver tables → `main.analytics.cdf_events` |
-
----
-
-## 🗂️ Repository Structure
-
-```
-ai-stock-research-assistant/
-│
-├── pipeline/
-│   ├── 00_setup_config.ipynb         # Ticker registry — Unity Catalog config table
-│   ├── 01_bronze_ingestion.ipynb     # Polygon API → Bronze Delta (append)
-│   ├── 02_silver_transform.ipynb     # Dedup · cast · enrich → Silver (overwrite)
-│   ├── 03_gold_aggregates.ipynb      # 4 analytics tables → Gold (overwrite)
-│   └── 05_sync_index.ipynb           # AI Search index sync (Workflow task 4)
-│
-├── embeddings/
-│   └── 04_embed_and_index.ipynb      # BGE Large embeddings → AI Search index
-│
-├── lakebase/
-│   ├── 05_schema_ddl.sql             # Lakebase Postgres schema (8 tables + CDF)
-│   └── grants.sql                    # Unity Catalog grants — run once before App
-│
-├── cdf/
-│   └── 06_cdf_to_delta.ipynb         # Delta CDF → main.analytics.cdf_events
-│
-├── agent/
-│   └── 07_agent_tools.ipynb          # AI Agent — 8 tools tested end-to-end
-│
-├── app/
-│   ├── app.py                        # Gradio frontend — deployed on Databricks Apps
-│   └── requirements.txt              # App dependencies
-│
-├── .gitignore
-├── README.md
-└── SETUP.md                          # Full implementation guide with all fixes
-```
-
----
-
-## 🛠️ Tech Stack
-
-| Layer | Technology |
-|---|---|
-| **Platform** | Databricks Free Edition (AWS, Unity Catalog) |
-| **Ingestion** | PySpark · Massive/Polygon REST API · 13s rate-limit handling |
-| **Storage** | Delta Lake — Bronze/Silver/Gold medallion · Lakebase Postgres 17 |
-| **Governance** | Unity Catalog · Secret Scopes · `account users` grants |
-| **Semantic search** | Databricks AI Search · BGE Large embeddings · Delta Sync index |
-| **Change tracking** | Delta CDF (`enableChangeDataFeed`) → analytics Delta table |
-| **AI Model** | `databricks-meta-llama-3-3-70b-instruct` — Foundation Models API |
-| **Agent pattern** | OpenAI-compatible function calling · 5-round agentic loop |
-| **Frontend** | Gradio · Databricks Apps · 3-column layout |
-| **Orchestration** | Databricks Workflows — 4-task DAG · Mon–Fri cron schedule |
-| **Version control** | GitHub · Databricks Git Repos integration |
-| **Secrets** | `dbutils.secrets` · `getpass` for interactive entry |
-
----
-
-## 📊 Tracked Tickers (20)
+## 📊 Tickers Covered (20 — 5 Sectors)
 
 | Sector | Tickers |
 |---|---|
-| **Technology** | AAPL · GOOGL · META · MSFT · NVDA |
-| **Finance** | BAC · GS · JPM · MS · V |
-| **Healthcare** | ABBV · JNJ · MRK · PFE · UNH |
-| **Consumer** | AMZN · TSLA · WMT |
-| **Energy** | CVX · XOM |
-
-Managed via `main.config.ticker_config` — add/remove tickers without code changes.
+| Technology | AAPL · GOOGL · META · MSFT · NVDA |
+| Finance | BAC · GS · JPM · MS · V |
+| Healthcare | ABBV · JNJ · MRK · PFE · UNH |
+| Consumer | AMZN · TSLA · WMT |
+| Energy | CVX · XOM |
 
 ---
 
-## 🗄️ Lakebase Schema (8 tables)
+## 🥉🥈🥇 Medallion Pipeline
 
-| Table | Purpose |
+### Bronze Layer (`main.bronze`)
+Raw append-only ingestion — nothing is lost or transformed at this layer.
+
+| Table | Source Endpoint | Description |
+|---|---|---|
+| `raw_companies` | `GET /v3/reference/tickers/{ticker}` | Company fundamentals (name, exchange, market cap, SIC) |
+| `raw_price_snapshots` | `GET /v2/aggs/ticker/{ticker}/prev` | Previous day's OHLCV close |
+| `raw_news_articles` | `GET /v2/reference/news` | Last 7 days of news per ticker |
+
+> **Data note:** `/prev` endpoint returns the **previous trading day's** closing OHLCV — this is the standard EOD data available on Massive/Polygon's free tier.
+
+### Silver Layer (`main.silver`)
+Cleaned, deduplicated, typed, analytics-ready tables.
+
+| Table | Key transformations |
 |---|---|
-| `users` | Registered users |
-| `watchlists` | Named watchlists per user |
-| `watchlist_tickers` | Tickers per watchlist |
-| `companies` | Fundamentals — market cap, sector, description |
-| `price_snapshots` | OHLCV per ticker per timestamp |
-| `news_articles` | Raw news text (also embedded for RAG) |
-| `research_notes` | User-authored notes per ticker |
-| `analysis_reports` | Agent-generated reports per session |
+| `companies` | Dedup by ticker · exchange code normalization · market_cap_billions derived |
+| `price_snapshots` | Dedup by (ticker, snapshot_date) · daily_return_pct · is_up_day flag |
+| `news_articles` | Dedup by article_id · sentiment normalized · article_age_days derived |
+| `news_for_search` | search_text = ticker + title + description — source for Vector Search |
 
-`REPLICA IDENTITY FULL` enabled on all tables for Change Data Feed.
-
----
-
-## 🏅 Gold Layer Tables
+### Gold Layer (`main.gold`)
+Aggregated, Agent-queryable analytics tables.
 
 | Table | Description |
 |---|---|
@@ -200,7 +148,7 @@ Managed via `main.config.ticker_config` — add/remove tickers without code chan
 
 | Tool | Type | Source | Description |
 |---|---|---|---|
-| `get_price_data` | Read | `main.gold.ticker_daily_summary` | Price, return, market cap |
+| `get_price_data` | Read | `main.gold.ticker_daily_summary` | EOD close, return, market cap |
 | `get_sentiment` | Read | `main.gold.sentiment_summary` | Sentiment signal + confidence |
 | `compare_tickers` | Read | `main.gold.ticker_daily_summary` | Side-by-side comparison |
 | `get_top_movers` | Read | `main.gold.top_movers` | Gainers and losers |
@@ -224,7 +172,7 @@ Managed via `main.config.ticker_config` — add/remove tickers without code chan
 | `gold_aggregates` | `pipeline/03_gold_aggregates` | silver_transform |
 | `sync_vs_index` | `pipeline/05_sync_index` | gold_aggregates |
 
-**Schedule:** `0 0 22 ? * MON-FRI` — 10 PM IST daily (after US market close)
+**Schedule:** `0 0 22 ? * MON-FRI` — 10 PM IST daily (after US market close, ingests that day's EOD data)
 
 ---
 
@@ -233,7 +181,7 @@ Managed via `main.config.ticker_config` — add/remove tickers without code chan
 ### Prerequisites
 - Databricks Free Edition account — [signup](https://databricks.com)
 - LinkedIn verified (unlocks outbound internet)
-- Massive/Polygon API key — [signup](https://massive.com) (free)
+- Massive/Polygon API key — [signup](https://massive.com) (free tier = EOD data)
 
 ### Quick Start
 
@@ -281,21 +229,21 @@ Source: app/app.py  |  Branch: main  |  Path: app
 ## 📱 App Features
 
 - **3-column layout** — Suggestions · Chat · Market data
-- **Suggestion panel** — 7 pre-built quick-question buttons
+- **Suggestion panel** — 8 pre-built quick-question buttons
 - **Chat** — Blue user bubbles · Dark assistant bubbles
 - **Input** — Press Enter to send (Claude-style)
-- **Market Summary** — Live prices for all 20 tickers
+- **Market Summary** — EOD prices for all 20 tickers (refreshed daily)
 - **Watchlist** — Shows saved tickers from agent interactions
 
 ---
 
 ## 👤 Author
 
-**Jayanth Dolai** — Senior Data Engineer  
+**Jayanth Dolai** — Senior Software Engineer  
 6+ years | Azure · Databricks · Microsoft Fabric  
 Certifications: Databricks Data Engineer Associate · DP-700 · DP-600 · DP-900 · Generative AI Associate
 
-[LinkedIn](https://www.linkedin.com/in/jayanth-dolai/) · [GitHub](https://github.com/demonjd2026-afk)
+[LinkedIn](https://www.linkedin.com/in/jayanth-dolai-7b115213a/) · [GitHub](https://github.com/demonjd2026-afk)
 
 ---
 
