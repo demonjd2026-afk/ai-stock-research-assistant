@@ -10,23 +10,33 @@ _w = _client = _wh = None
 
 def get_w():
     global _w
-    if not _w: _w = WorkspaceClient()
+    if not _w:
+        _w = WorkspaceClient()
     return _w
 
 def get_client():
     global _client
     if not _client:
         host = os.environ.get("DATABRICKS_HOST", "").rstrip("/")
-        tok = os.environ.get("DATABRICKS_TOKEN", "") or (get_w().config.token or "")
+        if host and not host.startswith("http"):
+            host = "https://" + host
+        tok = os.environ.get("DATABRICKS_TOKEN", "")
+        if not tok:
+            try:
+                tok = get_w().config.token or ""
+            except:
+                tok = ""
         _client = OpenAI(api_key=tok, base_url=host + "/serving-endpoints")
     return _client
 
 def get_wh():
     global _wh
-    if _wh: return _wh
+    if _wh:
+        return _wh
     whs = list(get_w().warehouses.list())
     t = next((w for w in whs if "RUNNING" in str(w.state or "")), whs[0] if whs else None)
-    if not t: raise RuntimeError("No warehouse")
+    if not t:
+        raise RuntimeError("No warehouse available")
     _wh = t.id
     return _wh
 
@@ -96,38 +106,53 @@ TMAP = {
     "save_research_note": save_research_note, "save_analysis_report": save_analysis_report
 }
 
-def agent(query):
-    msgs = [
-        {"role": "system", "content": "You are an AI stock market assistant. Use tools to get current data. Be concise and data-driven."},
-        {"role": "user", "content": query}
-    ]
+def agent(query, conversation_msgs):
+    """Run agent with full conversation history for continuous chat."""
+    conversation_msgs.append({"role": "user", "content": query})
     for _ in range(5):
-        r = get_client().chat.completions.create(model=MODEL, messages=msgs, tools=TOOLS, tool_choice="auto")
+        r = get_client().chat.completions.create(
+            model=MODEL, messages=conversation_msgs, tools=TOOLS, tool_choice="auto")
         m = r.choices[0].message
         if not m.tool_calls:
-            return m.content or ""
-        msgs.append({"role": "assistant", "content": m.content,
-                     "tool_calls": [{"id": tc.id, "type": "function",
-                                     "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
-                                    for tc in m.tool_calls]})
+            reply = m.content or ""
+            conversation_msgs.append({"role": "assistant", "content": reply})
+            return reply, conversation_msgs
+        conversation_msgs.append({
+            "role": "assistant", "content": m.content,
+            "tool_calls": [{"id": tc.id, "type": "function",
+                           "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                          for tc in m.tool_calls]})
         for tc in m.tool_calls:
             fn = tc.function.name
             args = json.loads(tc.function.arguments)
             res = TMAP[fn](**args) if fn in TMAP else {"error": "Unknown tool"}
-            msgs.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(res, default=str)})
-    return "Max rounds reached"
+            conversation_msgs.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(res, default=str)})
+    return "Max rounds reached", conversation_msgs
 
-def chat(question):
+def chat(question, history_text, conv_state):
     if not question.strip():
-        return "Please enter a question."
-    return agent(question)
+        return history_text, "", conv_state
+    try:
+        if not conv_state:
+            conv_state = [{"role": "system", "content": "You are an AI stock market assistant. Use tools to get current data. Be concise and data-driven."}]
+        reply, conv_state = agent(question, conv_state)
+        separator = "\n" + ("=" * 50) + "\n"
+        new_history = history_text + separator + "You: " + question + "\n\nAssistant: " + reply + "\n"
+        return new_history, "", conv_state
+    except Exception as e:
+        err = "Error: " + str(e)
+        separator = "\n" + ("=" * 50) + "\n"
+        return history_text + separator + "You: " + question + "\n\nAssistant: " + err + "\n", "", conv_state
+
+def clear_chat():
+    return "Chat cleared. Ask a new question below.", "", []
 
 def market_summary():
     try:
         rows = run_sql("SELECT t.ticker,t.close,t.daily_return_pct,t.is_up_day,s.sentiment_signal FROM main.gold.ticker_daily_summary t LEFT JOIN main.gold.sentiment_summary s ON t.ticker=s.ticker ORDER BY t.daily_return_pct DESC")
         if not rows:
-            return "No data yet. Run the pipeline first."
-        lines = ["=== Market Summary ===\n"]
+            return "No data yet. Run pipeline first."
+        lines = ["=== Market Summary ==="]
         for r in rows:
             try:
                 direction = "UP" if str(r.get("is_up_day", "")).lower() == "true" else "DOWN"
@@ -145,7 +170,7 @@ def watchlist():
         rows = run_sql("SELECT ticker,watchlist FROM main.agent.watchlists WHERE user_email='" + USER_EMAIL + "' ORDER BY added_at DESC LIMIT 10")
         if not rows:
             return "No tickers in watchlist yet."
-        lines = ["=== Watchlist ===\n"]
+        lines = ["=== Watchlist ==="]
         for r in rows:
             lines.append(r.get("ticker", "?") + " - " + r.get("watchlist", ""))
         return "\n".join(lines)
@@ -153,34 +178,42 @@ def watchlist():
         return "Error: " + str(e)
 
 with gr.Blocks(title="AI Stock Research Assistant") as demo:
-    gr.HTML("""
-    <div style='padding:10px'>
-        <h2>AI Stock Market Research Assistant</h2>
-        <p>Powered by Databricks Lakehouse and Llama 3.3 70B</p>
-    </div>
-    """)
+    gr.HTML("<h2>AI Stock Market Research Assistant</h2><p>Powered by Databricks Lakehouse and Llama 3.3 70B</p>")
+
+    conv_state = gr.State([])
+
     with gr.Row():
         with gr.Column(scale=2):
+            history_box = gr.Textbox(
+                label="Conversation",
+                value="Welcome! Ask me anything about stocks.",
+                lines=15,
+                interactive=False
+            )
             question_input = gr.Textbox(
-                label="Ask a question",
+                label="Your question",
                 placeholder="What is Apple's stock price? Compare MSFT vs NVDA. Top movers today?",
                 lines=2
             )
-            answer_output = gr.Textbox(label="Answer", lines=10, interactive=False)
-            ask_btn = gr.Button("Ask Agent", variant="primary")
-            gr.HTML("<hr><p><b>Quick questions:</b></p>")
+            with gr.Row():
+                ask_btn   = gr.Button("Ask Agent", variant="primary")
+                clear_btn = gr.Button("Clear Chat")
+
+            gr.HTML("<p><b>Quick questions:</b></p>")
             with gr.Row():
                 q1 = gr.Button("Apple price + sentiment")
                 q2 = gr.Button("Top movers today")
                 q3 = gr.Button("Compare MSFT vs NVDA")
+
         with gr.Column(scale=1):
-            market_out = gr.Textbox(label="Market Summary", lines=10, interactive=False)
+            market_out = gr.Textbox(label="Market Summary", lines=12, interactive=False)
             gr.Button("Refresh Market").click(fn=market_summary, outputs=market_out)
             watchlist_out = gr.Textbox(label="My Watchlist", lines=8, interactive=False)
             gr.Button("Refresh Watchlist").click(fn=watchlist, outputs=watchlist_out)
 
-    ask_btn.click(fn=chat, inputs=question_input, outputs=answer_output)
-    question_input.submit(fn=chat, inputs=question_input, outputs=answer_output)
+    ask_btn.click(fn=chat, inputs=[question_input, history_box, conv_state], outputs=[history_box, question_input, conv_state])
+    question_input.submit(fn=chat, inputs=[question_input, history_box, conv_state], outputs=[history_box, question_input, conv_state])
+    clear_btn.click(fn=clear_chat, outputs=[history_box, question_input, conv_state])
     q1.click(fn=lambda: "What is Apple's current stock price and sentiment?", outputs=question_input)
     q2.click(fn=lambda: "What are today's top gainers and losers?", outputs=question_input)
     q3.click(fn=lambda: "Compare MSFT and NVDA which has better momentum today?", outputs=question_input)
