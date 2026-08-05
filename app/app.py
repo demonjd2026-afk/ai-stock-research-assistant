@@ -147,9 +147,15 @@ def add_to_watchlist(ticker, watchlist_name="My Watchlist"):
     run_sql("INSERT INTO main.agent.watchlists(id,user_email,watchlist,ticker,added_at) VALUES('" + str(uuid.uuid4()) + "','" + USER_EMAIL + "','" + watchlist_name + "','" + ticker.upper() + "','" + datetime.now().isoformat() + "')")
     return {"status": "success", "message": ticker.upper() + " added to '" + watchlist_name + "'"}
 
-def remove_from_watchlist(ticker, watchlist_name="My Watchlist"):
-    run_sql("DELETE FROM main.agent.watchlists WHERE user_email='" + USER_EMAIL + "' AND ticker='" + ticker.upper() + "' AND watchlist='" + watchlist_name + "'")
-    return {"status": "success", "message": ticker.upper() + " removed from '" + watchlist_name + "'"}
+def remove_from_watchlist(ticker, watchlist_name=None):
+    """Remove ticker from watchlist. Uses LOWER() for case-insensitive watchlist matching."""
+    if watchlist_name:
+        run_sql("DELETE FROM main.agent.watchlists WHERE user_email='" + USER_EMAIL + "' AND ticker='" + ticker.upper() + "' AND LOWER(watchlist)='" + watchlist_name.lower() + "'")
+        return {"status": "success", "message": ticker.upper() + " removed from '" + watchlist_name + "'"}
+    else:
+        # Remove from all watchlists if no name specified
+        run_sql("DELETE FROM main.agent.watchlists WHERE user_email='" + USER_EMAIL + "' AND ticker='" + ticker.upper() + "'")
+        return {"status": "success", "message": ticker.upper() + " removed from all watchlists"}
 
 def save_research_note(ticker, note):
     run_sql("INSERT INTO main.agent.research_notes(id,user_email,ticker,note,created_at) VALUES('" + str(uuid.uuid4()) + "','" + USER_EMAIL + "','" + ticker.upper() + "','" + note[:500].replace("'","''") + "','" + datetime.now().isoformat() + "')")
