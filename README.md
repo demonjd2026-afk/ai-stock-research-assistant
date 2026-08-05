@@ -62,8 +62,8 @@ Massive/Polygon Stocks API  (20 tickers — 5 sectors)
            │                          │
            │                    ┌─────▼──────────────────┐
            │                    │  Databricks AI Search  │
-           │                    │  (BGE Large embeddings) │
-           │                    │  news_for_search_index  │
+           │                    │  (BGE Large embeddings)│
+           │                    │  news_for_search_index │
            │                    └─────┬──────────────────┘
            │                          │ semantic RAG
            ▼                          ▼
