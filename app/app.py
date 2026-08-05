@@ -290,7 +290,7 @@ def load_watchlist() -> str:
 # ------------------------------------------------------------------
 # 6. Gradio UI
 # ------------------------------------------------------------------
-def chat(message: str, history: list) -> tuple[str, list, str]:
+def chat(message, history):
     if not message.strip():
         return "", history, ""
     response, tool_trace = run_agent(message)

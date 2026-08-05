@@ -1,4 +1,4 @@
-gradio==4.44.0
+gradio==3.50.2
 openai>=1.0.0
 databricks-ai-search>=0.1.0
 databricks-sdk>=0.20.0
