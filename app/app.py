@@ -165,11 +165,8 @@ SUGGESTIONS = [
 
 # ── Chat handler (generator for instant question display) ─────────────────────
 def chat(question, pairs, conv_state):
-    if not question.strip(): return
-    # Immediately show question + thinking spinner
-    new_pairs = pairs + [(question, None)]
-    yield render_chat(new_pairs), "", pairs, conv_state
-    # Run agent
+    if not question.strip():
+        return render_chat(pairs) if pairs else WELCOME, "", pairs, conv_state
     try:
         if not conv_state:
             conv_state = [{"role":"system","content":"You are an AI stock market assistant. Use tools to get real data. Be concise."}]
@@ -177,7 +174,7 @@ def chat(question, pairs, conv_state):
     except Exception as e:
         reply = "Error: " + str(e)
     final_pairs = pairs + [(question, reply)]
-    yield render_chat(final_pairs), "", final_pairs, conv_state
+    return render_chat(final_pairs), "", final_pairs, conv_state
 
 def clear_chat(): return WELCOME, "", [], []
 
@@ -274,7 +271,6 @@ with gr.Blocks(css=CSS, title="AI Stock Research Assistant") as demo:
                 msg_input = gr.Textbox(
                     placeholder="Message Stock Assistant...",
                     show_label=False, lines=1, scale=10,
-                    container=False
                 )
                 send_btn  = gr.Button("↑", elem_classes="send-btn", scale=1)
                 clear_btn = gr.Button("🗑️", elem_classes="clear-btn", scale=1)
