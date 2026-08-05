@@ -83,22 +83,44 @@ def search_news(query, num_results=3):
         return run_sql("SELECT ticker,title,sentiment FROM main.silver.news_articles WHERE LOWER(title) LIKE '%" + query.lower() + "%' LIMIT " + str(num_results))
 
 def get_sector_rankings():
+    """Query main.gold.sector_rankings built by Phase 4 Gold aggregates."""
     rows = run_sql("""
         SELECT sector,
-               COUNT(ticker)                      AS ticker_count,
-               ROUND(SUM(market_cap_billions),2)  AS total_market_cap_billions,
-               ROUND(AVG(daily_return_pct),4)     AS avg_daily_return_pct,
-               ROUND(AVG(avg_sentiment_score),4)  AS avg_sentiment_score,
-               SUM(news_count)                    AS total_news_count
-        FROM main.gold.ticker_daily_summary t
+               ticker_count,
+               total_market_cap_billions,
+               avg_daily_return_pct,
+               avg_sentiment_score,
+               total_news_count,
+               tickers
+        FROM main.gold.sector_rankings
+        ORDER BY sector_rank ASC
+    """)
+    if rows:
+        return rows
+    # Fallback: compute live from ticker_config sector + Gold data
+    rows2 = run_sql("""
+        SELECT c.sector,
+               COUNT(t.ticker)                     AS ticker_count,
+               ROUND(SUM(t.market_cap_billions),2) AS total_market_cap_billions,
+               ROUND(AVG(t.daily_return_pct),4)    AS avg_daily_return_pct,
+               ROUND(AVG(s.avg_sentiment_score),4) AS avg_sentiment_score,
+               SUM(t.news_count)                   AS total_news_count
+        FROM main.config.ticker_config c
         INNER JOIN (
-            SELECT ticker, MAX(snapshot_date) AS latest_date
-            FROM main.gold.ticker_daily_summary GROUP BY ticker
-        ) l ON t.ticker = l.ticker AND t.snapshot_date = l.latest_date
-        WHERE sector IS NOT NULL
-        GROUP BY sector
-        ORDER BY total_market_cap_billions DESC""")
-    return rows if rows else [{"error": "No sector data available"}]
+            SELECT t2.ticker, t2.market_cap_billions, t2.daily_return_pct, t2.news_count,
+                   t2.snapshot_date
+            FROM main.gold.ticker_daily_summary t2
+            INNER JOIN (
+                SELECT ticker, MAX(snapshot_date) AS latest_date
+                FROM main.gold.ticker_daily_summary GROUP BY ticker
+            ) l ON t2.ticker = l.ticker AND t2.snapshot_date = l.latest_date
+        ) t ON c.ticker = t.ticker
+        LEFT JOIN main.gold.sentiment_summary s ON c.ticker = s.ticker
+        WHERE c.active = true
+        GROUP BY c.sector
+        ORDER BY total_market_cap_billions DESC
+    """)
+    return rows2 if rows2 else [{"error": "No sector data — run 03_gold_aggregates.ipynb to rebuild"}]
 
 def flag_price_moves(hours_back=24):
     rows = run_sql("""
