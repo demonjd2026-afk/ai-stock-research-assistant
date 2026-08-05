@@ -18,7 +18,7 @@ Built as part of the [Databricks AI Bootcamp Capstone](https://github.com/EcZach
 | **Phase 5** | Embeddings — news/filings → Vector Search index | ✅ Complete |
 | **Phase 6** | CDF pipeline — Lakebase → Delta analytics table | ✅ Complete |
 | **Phase 7** | AI Agent — tools for read + write actions | ✅ Complete |
-| **Phase 8** | Databricks App — Gradio frontend | ⬜ Pending |
+| **Phase 8** | Databricks App — Gradio frontend | ✅ Complete |
 
 ---
 
@@ -246,7 +246,11 @@ app/app.py                          →  deploy via Databricks Apps (Phase 8)
 
 ### Step 4 — Deploy the Databricks App
 
-In Databricks navigate to **Apps → Create App** and point it at `app/app.py`.
+1. In Databricks navigate to **Compute → Apps → Create App**
+2. Name: `stock-research-assistant`
+3. Point it at `app/app.py` in your Git folder
+4. The app auto-detects Gradio and deploys with a public URL
+5. Open the URL — the chat interface loads with live market data
 
 ---
 

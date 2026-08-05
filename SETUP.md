@@ -744,6 +744,68 @@ agent/
 
 ---
 
+## ✅ Phase 8 — Databricks App Frontend
+
+**File:** `app/app.py`
+
+### What Phase 8 Does
+
+Deploys a Gradio-based chat interface as a Databricks App. The frontend wraps the Phase 7 AI Agent and provides a live, shareable web UI for stock research.
+
+### Architecture
+
+```
+Databricks App (Gradio)
+       ↓ user message
+   run_agent() — agentic loop
+       ↓ tool calls
+   run_sql() via SDK Statement Execution API
+       ↓ Gold tables / Vector Search / agent write tables
+   Response + tool trace displayed in UI
+```
+
+### App Features
+
+**Chat Panel (left):**
+- Natural language chat with the AI Agent
+- Tool call trace shown after each response (which tools were called + results)
+- 5 example query buttons for quick start
+- Send via button or Enter key
+
+**Sidebar (right):**
+- Live market summary — all tracked tickers with price, return %, sentiment signal
+- Watchlist — current user watchlist from `main.agent.watchlists`
+- Refresh buttons for both panels
+
+### Key Differences from Phase 7 Notebook
+
+| Aspect | Phase 7 Notebook | Phase 8 App |
+|---|---|---|
+| Spark session | `SparkSession.builder` | Not used |
+| Data access | PySpark DataFrame API | SDK Statement Execution API (`run_sql()`) |
+| Auth | `dbutils` token | `DATABRICKS_TOKEN` env var (automatic in Apps) |
+| Vector Search | `databricks.ai_search` | `databricks.ai_search` (same) |
+| Deployment | Run in notebook | Deployed as Databricks App with public URL |
+
+### Deployment Steps
+
+1. Push `app/app.py` to GitHub
+2. Pull in Databricks Git folder
+3. Go to **Compute → Apps → Create App**
+4. Name: `stock-research-assistant`
+5. Source: point to `app/app.py` in your workspace
+6. Click **Deploy** — Databricks builds and hosts the app
+7. Open the generated URL to access the live chat interface
+
+### File Structure Update
+
+```
+app/
+└── app.py   ✅ Gradio frontend (chat + market summary + watchlist sidebar)
+```
+
+---
+
 ## ⬜ Next Steps
 
 ```
@@ -752,7 +814,7 @@ agent/
 ✅ Phase 5 — Embeddings + Vector Search (embeddings/04_embed_and_index.ipynb)
 ⬜ Phase 6 — Lakebase CDF → Delta     (cdf/06_cdf_to_delta.ipynb)
 ✅ Phase 7 — AI Agent with tools      (agent/07_agent_tools.ipynb)
-⬜ Phase 8 — Databricks App frontend  (app/app.py)
+✅ Phase 8 — Databricks App frontend  (app/app.py)
 ```
 
 ---
@@ -803,8 +865,10 @@ ai-stock-research-assistant/
 │   └── 04_embed_and_index.ipynb    ✅ Vector Search index + RAG
 ├── cdf/
 │   └── 06_cdf_to_delta.ipynb       ✅ Delta CDF → analytics table
-└── agent/
-    └── 07_agent_tools.ipynb        ✅ AI Agent (8 tools: 5 read + 3 write)
+├── agent/
+│   └── 07_agent_tools.ipynb        ✅ AI Agent (8 tools: 5 read + 3 write)
+└── app/
+    └── app.py                      ✅ Gradio frontend (Databricks App)
 ```
 
 ---
