@@ -539,6 +539,67 @@ embeddings/
 
 ---
 
+## ✅ Phase 6 — CDF → Delta Analytics
+
+**File:** `cdf/06_cdf_to_delta.ipynb`
+
+### What Phase 6 Does
+
+Captures every row-level change across the Silver Delta tables using Delta Lake's native Change Data Feed, and writes them into a Delta analytics table for pipeline monitoring and usage tracking.
+
+### Architecture Decision
+
+The capstone requires "CDF from Lakebase into a Delta table." Since Lakebase direct connectivity requires OAuth federation (not available on Free Edition), we implement CDF using **Delta Lake's native `enableChangeDataFeed`** — architecturally identical concept:
+
+| | Lakebase CDF | Delta CDF (implemented) |
+|---|---|---|
+| Enable on source | `REPLICA IDENTITY FULL` | `delta.enableChangeDataFeed = true` |
+| Change types | INSERT/UPDATE/DELETE | insert/update_postimage/delete |
+| Read mechanism | Logical replication stream | `readChangeFeed = true` |
+| Output | Delta analytics table | `main.analytics.cdf_events` |
+
+### Tables Created
+
+| Table | Purpose |
+|---|---|
+| `main.analytics.cdf_events` | Every row-level change event from Silver tables |
+| `main.analytics.cdf_summary` | Aggregated pipeline monitoring view |
+
+### CDF Events Schema
+
+```
+event_id        STRING    — unique event identifier
+source_table    STRING    — which Silver table changed
+operation       STRING    — INSERT / UPDATE / DELETE
+ticker          STRING    — which ticker was affected
+record_key      STRING    — primary key of changed row
+record_snapshot STRING    — JSON snapshot of changed columns
+commit_version  BIGINT    — Delta table version of the change
+commit_ts       TIMESTAMP — when the change was committed
+captured_at     TIMESTAMP — when CDF pipeline ran
+```
+
+### Notebook Structure (8 cells)
+
+| Cell | Purpose |
+|---|---|
+| 0 | Markdown description |
+| 1 | Enable CDF on all 4 Silver tables |
+| 2 | Create `main.analytics` schema + `cdf_events` table |
+| 3 | Read CDF from each Silver table → append to `cdf_events` |
+| 4 | Analytics queries on captured events |
+| 5 | Build `cdf_summary` Gold-style aggregate table |
+| 6 | Summary and architecture note |
+
+### File Structure Update
+
+```
+cdf/
+└── 06_cdf_to_delta.ipynb   ✅ Delta CDF → analytics table
+```
+
+---
+
 ## ⬜ Next Steps
 
 ```
@@ -594,8 +655,10 @@ ai-stock-research-assistant/
 │   ├── 01_bronze_ingestion.ipynb   ✅ Raw ingestion (Massive/Polygon API)
 │   ├── 02_silver_transform.ipynb   ✅ Clean, deduplicate, enrich
 │   └── 03_gold_aggregates.ipynb    ✅ Analytics aggregates (4 Gold tables)
-└── embeddings/
-    └── 04_embed_and_index.ipynb    ✅ Vector Search index + RAG
+├── embeddings/
+│   └── 04_embed_and_index.ipynb    ✅ Vector Search index + RAG
+└── cdf/
+    └── 06_cdf_to_delta.ipynb       ✅ Delta CDF → analytics table
 ```
 
 ---

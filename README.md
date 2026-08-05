@@ -16,7 +16,7 @@ Built as part of the [Databricks AI Bootcamp Capstone](https://github.com/EcZach
 | **Phase 3** | Silver transformation — cleaning + normalization | ✅ Complete |
 | **Phase 4** | Gold aggregates — analytics-ready tables | ✅ Complete |
 | **Phase 5** | Embeddings — news/filings → Vector Search index | ⬜ Pending |
-| **Phase 6** | CDF pipeline — Lakebase → Delta analytics table | ⬜ Pending |
+| **Phase 6** | CDF pipeline — Lakebase → Delta analytics table | ✅ Complete |
 | **Phase 7** | AI Agent — tools for read + write actions | ⬜ Pending |
 | **Phase 8** | Databricks App — Gradio frontend | ⬜ Pending |
 
