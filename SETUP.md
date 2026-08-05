@@ -428,12 +428,123 @@ Lakebase CDF     Streams into Delta analytics table (Phase 6)
 
 ---
 
+## ✅ Phase 5 — Embeddings + Vector Search
+
+**File:** `embeddings/04_embed_and_index.ipynb`
+
+### What Phase 5 Does
+
+Builds the semantic search layer that powers the AI Agent's RAG capability. News article text is embedded using a Databricks Foundation Model and indexed in a Vector Search index. The Agent queries this index to retrieve contextually relevant articles for any user question.
+
+### Components Created
+
+| Component | Name | Purpose |
+|---|---|---|
+| Source Delta table | `main.silver.news_for_search` | CDF-enabled table with `search_text` column |
+| Vector Search endpoint | `stock-assistant-vs` | Hosts the index, type: STANDARD |
+| Vector Search index | `main.silver.news_for_search_index` | Delta Sync index with managed embeddings |
+| Embedding model | `databricks-bge-large-en` | Converts text to vectors automatically |
+
+### How It Works
+
+```
+main.silver.news_articles
+        ↓ build search_text = "ticker | title | description"
+main.silver.news_for_search  (CDF enabled)
+        ↓ Delta Sync pipeline (TRIGGERED mode)
+Vector Search index  (managed embeddings via BGE Large)
+        ↓ similarity_search(query_text, num_results=3)
+Agent tool: search_news(query)
+        ↓ top-k articles returned as RAG context
+AI Agent response grounded in real news
+```
+
+### Source Table Design
+
+The `search_text` column combines three fields for richer semantic context:
+```python
+search_text = ticker + " | " + title + " | " + description
+# Example: "AAPL | Apple Is Down 10%... | Apple shares fell..."
+```
+
+This gives the embedding model more signal than just the headline alone.
+
+### Notebook Structure (9 cells)
+
+| Cell | Purpose |
+|---|---|
+| 0 | Markdown description |
+| 1 | `%pip install databricks-vectorsearch` + kernel restart |
+| 2 | Imports + config (endpoint/index names, model) |
+| 3 | Build `news_for_search` Delta table with CDF enabled |
+| 4 | Create or verify Vector Search endpoint (waits for ONLINE) |
+| 5 | Create or verify Vector Search index (waits for ready) |
+| 6 | Trigger index sync (first pipeline run) |
+| 7 | Test semantic search with 3 queries |
+| 8 | Summary |
+
+### Notebook Structure (10 cells)
+
+| Cell | Purpose |
+|---|---|
+| 0 | Markdown description |
+| 1 | `%pip install databricks-vectorsearch` + kernel restart |
+| 2 | Imports + config (endpoint/index names, model) |
+| 3 | Build `news_for_search` Delta table with CDF enabled |
+| 4 | Create or verify Vector Search endpoint (waits for ONLINE) |
+| 5 | Delete stuck index if needed, recreate cleanly |
+| 6 | Wait for index ready (40 attempts × 30s = 20 min max) |
+| 7 | Trigger sync + test semantic search with 3 queries |
+| 8 | Manual status check cell (run anytime to check state) |
+| 9 | Summary |
+
+### Provisioning Stages (Free Edition)
+
+The index goes through 3 stages after creation:
+```
+PROVISIONING_ENDPOINT           ~5-10 min  (endpoint slice allocation)
+       ↓
+PROVISIONING_PIPELINE_RESOURCES ~10-15 min (embedding pipeline setup)
+       ↓
+ONLINE / ready: True                        (semantic search available)
+```
+Total provisioning time on Free Edition: **20-40 minutes**.
+
+### Known Issues & Fixes
+
+| Issue | Cause | Fix |
+|---|---|---|
+| `ModuleNotFoundError: databricks.vector_search` | Package not pre-installed on Serverless | Added `%pip install databricks-vectorsearch` + restart in Cell 1 |
+| `'AISearchIndex' object has no attribute 'get'` | VS SDK returns object not dict | Use `idx.describe().get(...)` for all status checks |
+| Index stuck in `PROVISIONING_ENDPOINT` forever | Index created before endpoint finished provisioning | Delete and recreate index — Cell 5 handles this automatically |
+| `PROVISIONING_PIPELINE_RESOURCES` takes 15+ min | Free Edition — 1 VSU, shared resources | Wait loop extended to 40 attempts × 30s = 20 min |
+| Auth notice spam on every `VectorSearchClient()` | Default SDK behavior | Added `disable_notice=True` to suppress |
+| `BadRequest: Vector index is not ready` | Searched before index finished | Wait for `ready: True` before calling `similarity_search()` |
+
+### Index Configuration
+
+| Parameter | Value | Reason |
+|---|---|---|
+| `pipeline_type` | `TRIGGERED` | Manual sync control — sync runs when called explicitly |
+| `primary_key` | `article_id` | Unique identifier per article |
+| `embedding_source_column` | `search_text` | Rich combined text field |
+| `embedding_model_endpoint_name` | `databricks-bge-large-en` | Best available on Free Edition |
+
+### File Structure Update
+
+```
+embeddings/
+└── 04_embed_and_index.ipynb   ✅ Vector Search index creation + RAG test
+```
+
+---
+
 ## ⬜ Next Steps
 
 ```
 ✅ Phase 3 — Silver transformation    (pipeline/02_silver_transform.ipynb)
 ✅ Phase 4 — Gold aggregates          (pipeline/03_gold_aggregates.ipynb)
-⬜ Phase 5 — Embeddings + Vector Search (embeddings/04_embed_and_index.ipynb)
+✅ Phase 5 — Embeddings + Vector Search (embeddings/04_embed_and_index.ipynb)
 ⬜ Phase 6 — Lakebase CDF → Delta     (cdf/06_cdf_to_delta.ipynb)
 ⬜ Phase 7 — AI Agent with tools      (agent/07_agent_tools.ipynb)
 ⬜ Phase 8 — Databricks App frontend  (app/app.py)
@@ -478,11 +589,13 @@ ai-stock-research-assistant/
 ├── SETUP.md
 ├── lakebase/
 │   └── 05_schema_ddl.sql           ✅ 8 Lakebase tables
-└── pipeline/
-    ├── 00_setup_config.ipynb       ✅ Ticker registry (Unity Catalog)
-    ├── 01_bronze_ingestion.ipynb   ✅ Raw ingestion (Massive/Polygon API)
-    ├── 02_silver_transform.ipynb   ✅ Clean, deduplicate, enrich
-    └── 03_gold_aggregates.ipynb    ✅ Analytics aggregates (4 Gold tables)
+├── pipeline/
+│   ├── 00_setup_config.ipynb       ✅ Ticker registry (Unity Catalog)
+│   ├── 01_bronze_ingestion.ipynb   ✅ Raw ingestion (Massive/Polygon API)
+│   ├── 02_silver_transform.ipynb   ✅ Clean, deduplicate, enrich
+│   └── 03_gold_aggregates.ipynb    ✅ Analytics aggregates (4 Gold tables)
+└── embeddings/
+    └── 04_embed_and_index.ipynb    ✅ Vector Search index + RAG
 ```
 
 ---
