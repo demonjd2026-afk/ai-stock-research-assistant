@@ -323,18 +323,19 @@ with gr.Blocks(
 
     with gr.Row():
         with gr.Column(scale=3):
-            chatbot = gr.Chatbot(label="Chat", height=480, show_copy_button=True)
+            chatbot = gr.Chatbot(label="Chat", height=480)
             with gr.Row():
                 msg     = gr.Textbox(placeholder="Ask about stocks, prices, news...", show_label=False, scale=4)
                 send_btn= gr.Button("Send 🚀", variant="primary", scale=1)
 
             gr.Markdown("**💡 Try these:**")
             with gr.Row():
-                for q in EXAMPLES[:3]:
-                    gr.Button(q, size="sm").click(fn=lambda x=q: x, outputs=msg)
+                ex1 = gr.Button(EXAMPLES[0], size="sm")
+                ex2 = gr.Button(EXAMPLES[1], size="sm")
+                ex3 = gr.Button(EXAMPLES[2], size="sm")
             with gr.Row():
-                for q in EXAMPLES[3:]:
-                    gr.Button(q, size="sm").click(fn=lambda x=q: x, outputs=msg)
+                ex4 = gr.Button(EXAMPLES[3], size="sm")
+                ex5 = gr.Button(EXAMPLES[4], size="sm")
 
             tool_trace_box = gr.Markdown(value="")
 
@@ -347,6 +348,12 @@ with gr.Blocks(
 
     send_btn.click(fn=chat, inputs=[msg, chatbot], outputs=[msg, chatbot, tool_trace_box])
     msg.submit(fn=chat, inputs=[msg, chatbot], outputs=[msg, chatbot, tool_trace_box])
+
+    ex1.click(fn=lambda: EXAMPLES[0], outputs=msg)
+    ex2.click(fn=lambda: EXAMPLES[1], outputs=msg)
+    ex3.click(fn=lambda: EXAMPLES[2], outputs=msg)
+    ex4.click(fn=lambda: EXAMPLES[3], outputs=msg)
+    ex5.click(fn=lambda: EXAMPLES[4], outputs=msg)
 
 if __name__ == "__main__":
     demo.launch(show_api=False)
