@@ -1,12 +1,11 @@
 import os, json, uuid, gradio as gr
-from openai import OpenAI
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service import sql as dbsql
 from datetime import datetime
 
 MODEL = "databricks-meta-llama-3-3-70b-instruct"
 USER_EMAIL = "jayanthdolai07@gmail.com"
-_w = _client = _wh = None
+_w = _wh = None
 
 def get_w():
     global _w
@@ -14,20 +13,18 @@ def get_w():
         _w = WorkspaceClient()
     return _w
 
-def get_client():
-    global _client
-    if not _client:
-        host = os.environ.get("DATABRICKS_HOST", "").rstrip("/")
-        if host and not host.startswith("http"):
-            host = "https://" + host
-        tok = os.environ.get("DATABRICKS_TOKEN", "")
-        if not tok:
-            try:
-                tok = get_w().config.token or ""
-            except:
-                tok = ""
-        _client = OpenAI(api_key=tok, base_url=host + "/serving-endpoints")
-    return _client
+def call_llm(messages, tools=None):
+    """Call Foundation Models API using SDK authenticated client."""
+    body = {"messages": messages, "max_tokens": 2048}
+    if tools:
+        body["tools"] = tools
+        body["tool_choice"] = "auto"
+    result = get_w().api_client.do(
+        "POST",
+        "/serving-endpoints/" + MODEL + "/invocations",
+        body=body
+    )
+    return result
 
 def get_wh():
     global _wh
@@ -110,23 +107,30 @@ def agent(query, conversation_msgs):
     """Run agent with full conversation history for continuous chat."""
     conversation_msgs.append({"role": "user", "content": query})
     for _ in range(5):
-        r = get_client().chat.completions.create(
-            model=MODEL, messages=conversation_msgs, tools=TOOLS, tool_choice="auto")
-        m = r.choices[0].message
-        if not m.tool_calls:
-            reply = m.content or ""
-            conversation_msgs.append({"role": "assistant", "content": reply})
-            return reply, conversation_msgs
+        r = call_llm(conversation_msgs, TOOLS)
+        choices = r.get("choices", [{}])
+        msg = choices[0].get("message", {}) if choices else {}
+        tool_calls = msg.get("tool_calls", [])
+        reply_text = msg.get("content", "")
+
+        if not tool_calls:
+            conversation_msgs.append({"role": "assistant", "content": reply_text})
+            return reply_text, conversation_msgs
+
         conversation_msgs.append({
-            "role": "assistant", "content": m.content,
-            "tool_calls": [{"id": tc.id, "type": "function",
-                           "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
-                          for tc in m.tool_calls]})
-        for tc in m.tool_calls:
-            fn = tc.function.name
-            args = json.loads(tc.function.arguments)
-            res = TMAP[fn](**args) if fn in TMAP else {"error": "Unknown tool"}
-            conversation_msgs.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(res, default=str)})
+            "role": "assistant", "content": reply_text,
+            "tool_calls": [{"id": tc.get("id"), "type": "function",
+                           "function": {"name": tc.get("function", {}).get("name"),
+                                       "arguments": tc.get("function", {}).get("arguments", "{}")}}
+                          for tc in tool_calls]})
+        for tc in tool_calls:
+            fn = tc.get("function", {}).get("name", "")
+            try:
+                args = json.loads(tc.get("function", {}).get("arguments", "{}"))
+            except:
+                args = {}
+            res = TMAP[fn](**args) if fn in TMAP else {"error": "Unknown tool: " + fn}
+            conversation_msgs.append({"role": "tool", "tool_call_id": tc.get("id"), "content": json.dumps(res, default=str)})
     return "Max rounds reached", conversation_msgs
 
 def chat(question, history_text, conv_state):
