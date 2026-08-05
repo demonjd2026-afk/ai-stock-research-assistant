@@ -618,6 +618,96 @@ cdf/
 
 ---
 
+## ✅ Phase 7 — AI Agent with Tools
+
+**File:** `agent/07_agent_tools.ipynb`
+
+### What Phase 7 Does
+
+Implements a fully agentic AI assistant using Databricks Foundation Models API with OpenAI-compatible function calling. The agent uses an agentic loop — it calls tools iteratively, receives results, and continues until it produces a final answer.
+
+### Model
+
+| Property | Value |
+|---|---|
+| Model | `databricks-meta-llama-3-3-70b-instruct` |
+| API | Databricks Foundation Models (OpenAI-compatible) |
+| Auth | Notebook context token via `dbutils` |
+| Tool calling | OpenAI function-calling format |
+| Max rounds | 5 per query |
+
+### Tools Implemented (8 total)
+
+**Read tools (5):**
+
+| Tool | Source | What it returns |
+|---|---|---|
+| `get_price_data(ticker)` | `main.gold.ticker_daily_summary` | close, open, high, low, volume, daily_return_pct, market_cap_billions |
+| `get_sentiment(ticker)` | `main.gold.sentiment_summary` | sentiment_signal, sentiment_confidence, avg_sentiment_score, news_count |
+| `compare_tickers(tickers)` | `main.gold.ticker_daily_summary` | Side-by-side comparison sorted by daily return |
+| `get_top_movers(limit)` | `main.gold.top_movers` | Top gainers and losers with return rank |
+| `search_news(query, num_results)` | Vector Search index (BGE Large embeddings) | Semantically relevant articles with sentiment. Falls back to keyword search if index not ready |
+
+**Write tools (3):**
+
+| Tool | Writes to | What it stores |
+|---|---|---|
+| `add_to_watchlist(ticker, watchlist_name)` | `main.agent.watchlists` | ticker + watchlist name + timestamp |
+| `save_research_note(ticker, note)` | `main.agent.research_notes` | free-text note per ticker |
+| `save_analysis_report(ticker, report_text)` | `main.agent.analysis_reports` | full report + model name + timestamp |
+
+### Agent Write Tables
+
+Three Delta tables in `main.agent` schema (Lakebase connection not available on Free Edition — Delta used as equivalent):
+
+```sql
+main.agent.watchlists        -- ticker, watchlist, user_email, added_at
+main.agent.research_notes    -- ticker, note, user_email, created_at
+main.agent.analysis_reports  -- ticker, report_text, agent_model, generated_at
+```
+
+### Agentic Loop Implementation
+
+```python
+def run_agent(user_query):
+    messages = [system_prompt, user_query]
+    for round in range(5):
+        response = llm(messages, tools=TOOLS)
+        if no tool_calls → return response   # done
+        for each tool_call:
+            result = execute_tool(tool_call)
+            messages.append(tool_result)
+        # loop again with updated messages
+```
+
+### Notebook Structure (14 cells)
+
+| Cell | Purpose |
+|---|---|
+| 0 | Markdown description |
+| 1 | `%pip install openai` + kernel restart |
+| 2 | Imports + OpenAI client → Databricks Foundation Models |
+| 3 | Create `main.agent.*` write tables |
+| 4 | 8 tool function implementations |
+| 5 | Tool schemas in OpenAI function-calling format |
+| 6 | Agent runner (agentic loop) |
+| 7 | Test 1 — Apple price + sentiment |
+| 8 | Test 2 — MSFT vs NVDA comparison |
+| 9 | Test 3 — Top movers |
+| 10 | Test 4 — News search + save note for NVDA |
+| 11 | Test 5 — Add AAPL + MSFT to watchlist |
+| 12 | Verify write tables |
+| 13 | Summary |
+
+### File Structure Update
+
+```
+agent/
+└── 07_agent_tools.ipynb   ✅ AI Agent with 8 tools (5 read + 3 write)
+```
+
+---
+
 ## ⬜ Next Steps
 
 ```
@@ -625,7 +715,7 @@ cdf/
 ✅ Phase 4 — Gold aggregates          (pipeline/03_gold_aggregates.ipynb)
 ✅ Phase 5 — Embeddings + Vector Search (embeddings/04_embed_and_index.ipynb)
 ⬜ Phase 6 — Lakebase CDF → Delta     (cdf/06_cdf_to_delta.ipynb)
-⬜ Phase 7 — AI Agent with tools      (agent/07_agent_tools.ipynb)
+✅ Phase 7 — AI Agent with tools      (agent/07_agent_tools.ipynb)
 ⬜ Phase 8 — Databricks App frontend  (app/app.py)
 ```
 
@@ -675,8 +765,10 @@ ai-stock-research-assistant/
 │   └── 03_gold_aggregates.ipynb    ✅ Analytics aggregates (4 Gold tables)
 ├── embeddings/
 │   └── 04_embed_and_index.ipynb    ✅ Vector Search index + RAG
-└── cdf/
-    └── 06_cdf_to_delta.ipynb       ✅ Delta CDF → analytics table
+├── cdf/
+│   └── 06_cdf_to_delta.ipynb       ✅ Delta CDF → analytics table
+└── agent/
+    └── 07_agent_tools.ipynb        ✅ AI Agent (8 tools: 5 read + 3 write)
 ```
 
 ---

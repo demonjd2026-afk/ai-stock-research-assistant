@@ -15,9 +15,9 @@ Built as part of the [Databricks AI Bootcamp Capstone](https://github.com/EcZach
 | **Phase 2** | Bronze ingestion — Massive Stocks API → Delta | ✅ Complete |
 | **Phase 3** | Silver transformation — cleaning + normalization | ✅ Complete |
 | **Phase 4** | Gold aggregates — analytics-ready tables | ✅ Complete |
-| **Phase 5** | Embeddings — news/filings → Vector Search index | ⬜ Pending |
+| **Phase 5** | Embeddings — news/filings → Vector Search index | 🔄 In Progress |
 | **Phase 6** | CDF pipeline — Lakebase → Delta analytics table | ✅ Complete |
-| **Phase 7** | AI Agent — tools for read + write actions | ⬜ Pending |
+| **Phase 7** | AI Agent — tools for read + write actions | ✅ Complete |
 | **Phase 8** | Databricks App — Gradio frontend | ⬜ Pending |
 
 ---
@@ -153,18 +153,34 @@ Change Data Feed is enabled on all tables, streaming writes into a Delta analyti
 
 ## 🤖 AI Agent Capabilities
 
-The agent is built with the **Databricks Mosaic AI Agent Framework** and has the following tools:
+The agent uses **Databricks Foundation Models API** (`databricks-meta-llama-3-3-70b-instruct`) with OpenAI-compatible function calling. An agentic loop executes tools iteratively until the model produces a final response.
 
-| Tool | Type | Description |
-|---|---|---|
-| `get_price_data` | **Read** | Pull current + historical OHLCV for a ticker |
-| `search_news` | **Read** | Semantic search over embedded news articles and filings |
-| `compare_tickers` | **Read** | Compare fundamentals or price action across multiple tickers |
-| `flag_price_moves` | **Read** | Surface notable moves or news since the user's last visit |
-| `add_to_watchlist` | **Write** | Add a ticker to a named watchlist in Lakebase |
-| `remove_from_watchlist` | **Write** | Remove a ticker from a watchlist |
-| `save_research_note` | **Write** | Persist a user note tied to a ticker |
-| `save_analysis_report` | **Write** | Log an agent-generated report for a session |
+### Tools
+
+| Tool | Type | Data Source | Description |
+|---|---|---|---|
+| `get_price_data` | **Read** | `main.gold.ticker_daily_summary` | Current price, daily return, market cap |
+| `get_sentiment` | **Read** | `main.gold.sentiment_summary` | BULLISH/NEUTRAL/BEARISH signal + confidence |
+| `compare_tickers` | **Read** | `main.gold.ticker_daily_summary` | Side-by-side ticker comparison |
+| `get_top_movers` | **Read** | `main.gold.top_movers` | Today's top gainers and losers |
+| `search_news` | **Read** | Vector Search index (RAG) | Semantic search over news articles |
+| `add_to_watchlist` | **Write** | `main.agent.watchlists` | Save ticker to user watchlist |
+| `save_research_note` | **Write** | `main.agent.research_notes` | Persist user note per ticker |
+| `save_analysis_report` | **Write** | `main.agent.analysis_reports` | Log agent-generated report |
+
+### Agentic Loop
+
+```
+User query
+     ↓
+LLM (Llama 3.3 70B) decides which tools to call
+     ↓
+Tool execution → results sent back to LLM
+     ↓
+LLM synthesizes response (repeats up to 5 rounds)
+     ↓
+Final response returned to user
+```
 
 ---
 
