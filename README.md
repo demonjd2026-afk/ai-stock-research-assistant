@@ -88,27 +88,32 @@ Built as part of the [Databricks AI Bootcamp Capstone](https://github.com/EcZach
 ai-stock-research-assistant/
 │
 ├── pipeline/
-│   ├── 01_bronze_ingestion.py        # Massive Stocks API → raw Delta tables (PySpark)
-│   ├── 02_silver_transform.py        # Cleaning, typing, deduplication
-│   └── 03_gold_aggregates.py         # Sector rollups, moving averages, analytics tables
+│   ├── 00_setup_config.ipynb         # Ticker registry in Unity Catalog
+│   ├── 01_bronze_ingestion.ipynb     # Polygon API → Bronze Delta tables
+│   ├── 02_silver_transform.ipynb     # Clean, deduplicate, enrich → Silver
+│   ├── 03_gold_aggregates.ipynb      # Analytics aggregates → Gold (4 tables)
+│   └── 05_sync_index.ipynb           # Vector Search index sync (daily workflow)
 │
 ├── embeddings/
-│   └── 04_embed_and_index.py         # Chunk + embed news/filings → Databricks Vector Index
+│   └── 04_embed_and_index.ipynb      # BGE embeddings → Databricks AI Search index
 │
 ├── lakebase/
-│   └── 05_schema_ddl.sql             # Lakebase (Postgres OLTP) CREATE TABLE statements
+│   ├── 05_schema_ddl.sql             # Lakebase Postgres schema (8 tables)
+│   └── grants.sql                    # Unity Catalog grants (run once)
 │
 ├── cdf/
-│   └── 06_cdf_to_delta.py            # Lakebase Change Data Feed → Delta analytics table
+│   └── 06_cdf_to_delta.ipynb         # Delta CDF → analytics table
 │
 ├── agent/
-│   └── 07_agent_tools.py             # AI agent definition + tool implementations
+│   └── 07_agent_tools.ipynb          # AI Agent — 8 tools (5 read + 3 write)
 │
 ├── app/
-│   └── app.py                        # Databricks App — Gradio frontend
+│   ├── app.py                        # Databricks App — Gradio chat frontend
+│   └── requirements.txt              # App Python dependencies
 │
-├── requirements.txt                  # Python dependencies
-└── README.md
+├── .gitignore
+├── README.md
+└── SETUP.md                          # Full setup + implementation guide
 ```
 
 ---
@@ -304,7 +309,7 @@ This Delta table powers a Gold-layer dashboard notebook showing app usage and ag
 6+ years | Azure · Databricks · Microsoft Fabric  
 Certifications: Databricks Data Engineer Associate · DP-700 · DP-600 · DP-900 · Databricks Generative AI Associate
 
-[LinkedIn](https://linkedin.com/in/YOUR_LINKEDIN_HANDLE) · [GitHub](https://github.com/demonjd2026-afk)
+[LinkedIn](https://www.linkedin.com/in/jayanth-dolai/) · [GitHub](https://github.com/demonjd2026-afk)
 
 ---
 

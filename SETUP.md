@@ -939,7 +939,7 @@ pipeline/
 ✅ Phase 3 — Silver transformation    (pipeline/02_silver_transform.ipynb)
 ✅ Phase 4 — Gold aggregates          (pipeline/03_gold_aggregates.ipynb)
 ✅ Phase 5 — Embeddings + Vector Search (embeddings/04_embed_and_index.ipynb)
-⬜ Phase 6 — Lakebase CDF → Delta     (cdf/06_cdf_to_delta.ipynb)
+✅ Phase 6 — Lakebase CDF → Delta     (cdf/06_cdf_to_delta.ipynb)
 ✅ Phase 7 — AI Agent with tools      (agent/07_agent_tools.ipynb)
 ✅ Phase 8 — Databricks App frontend  (app/app.py)
 ```

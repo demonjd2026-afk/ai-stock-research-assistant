@@ -181,16 +181,28 @@ def clear_chat(): return WELCOME, "", [], []
 # ── Sidebar helpers ───────────────────────────────────────────────────────────
 def market_fn():
     try:
-        rows = run_sql("SELECT t.ticker,t.close,t.daily_return_pct,t.is_up_day FROM main.gold.ticker_daily_summary t ORDER BY t.daily_return_pct DESC")
+        # Get only LATEST snapshot_date per ticker to avoid duplicates
+        # from multiple pipeline runs (each run adds a new date to Silver)
+        rows = run_sql("""
+            SELECT t.ticker, t.close, t.daily_return_pct, t.is_up_day
+            FROM main.gold.ticker_daily_summary t
+            INNER JOIN (
+                SELECT ticker, MAX(snapshot_date) AS latest_date
+                FROM main.gold.ticker_daily_summary
+                GROUP BY ticker
+            ) latest
+            ON t.ticker = latest.ticker
+            AND t.snapshot_date = latest.latest_date
+            ORDER BY t.daily_return_pct DESC
+        """)
         if not rows: return "No data yet. Run pipeline first."
-        seen  = set(); lines = []
+        lines = []
         for r in rows:
-            if r["ticker"] in seen: continue
-            seen.add(r["ticker"])
-            d    = "🟢" if str(r.get("is_up_day","")).lower()=="true" else "🔴"
+            d    = "🟢" if str(r.get("is_up_day","")).lower() == "true" else "🔴"
             ret  = float(r.get("daily_return_pct") or 0)
             sign = "+" if ret >= 0 else ""
-            lines.append(d + " " + r["ticker"] + "  $" + str(r["close"]) + "  (" + sign + str(round(ret,2)) + "%)")
+            lines.append(d + " " + r["ticker"] + "  $" + str(r["close"]) +
+                        "  (" + sign + str(round(ret, 2)) + "%)")
         return "\n".join(lines)
     except Exception as e: return "Error: " + str(e)
 
