@@ -32,7 +32,7 @@ This project was built entirely on **Databricks Free Edition**. Three notable co
 | **Phase 4** | Gold aggregates — 4 analytics-ready tables | ✅ Complete |
 | **Phase 5** | Embeddings — BGE Large → AI Search index | ✅ Complete |
 | **Phase 6** | CDF pipeline — Delta CDF → analytics table | ✅ Complete |
-| **Phase 7** | AI Agent — 8 tools (5 read + 3 write) | ✅ Complete |
+| **Phase 7** | AI Agent — 11 tools (7 read + 4 write) | ✅ Complete |
 | **Phase 8** | Databricks App — live Gradio frontend | ✅ Complete |
 | **Workflow** | Daily automated pipeline (Mon–Fri) | ✅ Complete |
 
@@ -70,7 +70,7 @@ Massive/Polygon Stocks API  (20 tickers — 5 sectors)
     ┌──────────────────────────────────────┐
     │            AI AGENT                  │
     │  Llama 3.3 70B · Function Calling    │
-    │  5 read tools · 3 write tools        │
+    │  7 read tools · 4 write tools        │
     └──────────────┬───────────────────────┘
                    │ writes
           ┌────────┼──────────┐
@@ -153,11 +153,18 @@ Aggregated, Agent-queryable analytics tables.
 | `compare_tickers` | Read | `main.gold.ticker_daily_summary` | Side-by-side comparison |
 | `get_top_movers` | Read | `main.gold.top_movers` | Gainers and losers |
 | `search_news` | Read | AI Search index (RAG) | Semantic news search |
+| `get_sector_rankings` | Read | `main.gold.sector_rankings` | Sector market cap + avg return |
+| `flag_price_moves` | Read | `main.gold.ticker_daily_summary` | Alert if ticker moved > N% in a day |
 | `add_to_watchlist` | Write | `main.agent.watchlists` | Save ticker to watchlist |
+| `remove_from_watchlist` | Write | `main.agent.watchlists` | Remove ticker from watchlist |
 | `save_research_note` | Write | `main.agent.research_notes` | Persist research note |
 | `save_analysis_report` | Write | `main.agent.analysis_reports` | Log agent report |
 
 **Agentic loop:** User query → LLM picks tools → execute → results back to LLM → repeat up to 5 rounds → final response.
+
+**Read tools (7):** `get_price_data` · `get_sentiment` · `compare_tickers` · `get_top_movers` · `search_news` · `get_sector_rankings` · `flag_price_moves`
+
+**Write tools (4):** `add_to_watchlist` · `remove_from_watchlist` · `save_research_note` · `save_analysis_report`
 
 ---
 

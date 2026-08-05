@@ -649,9 +649,9 @@ Implements a fully agentic AI assistant using Databricks Foundation Models API w
 | Tool calling | OpenAI function-calling format |
 | Max rounds | 5 per query |
 
-### Tools Implemented (8 total)
+### Tools Implemented (11 total)
 
-**Read tools (5):**
+**Read tools (7):**
 
 | Tool | Source | What it returns |
 |---|---|---|
@@ -660,12 +660,15 @@ Implements a fully agentic AI assistant using Databricks Foundation Models API w
 | `compare_tickers(tickers)` | `main.gold.ticker_daily_summary` | Side-by-side comparison sorted by daily return |
 | `get_top_movers(limit)` | `main.gold.top_movers` | Top gainers and losers with return rank |
 | `search_news(query, num_results)` | Vector Search index (BGE Large embeddings) | Semantically relevant articles with sentiment. Falls back to keyword search if index not ready |
+| `get_sector_rankings()` | `main.gold.sector_rankings` | Sector market cap + avg return + sentiment ranked |
+| `flag_price_moves(ticker, threshold_pct)` | `main.gold.ticker_daily_summary` | Alert if ticker moved > N% in a day; returns direction + message |
 
-**Write tools (3):**
+**Write tools (4):**
 
 | Tool | Writes to | What it stores |
 |---|---|---|
 | `add_to_watchlist(ticker, watchlist_name)` | `main.agent.watchlists` | ticker + watchlist name + timestamp |
+| `remove_from_watchlist(ticker, watchlist_name)` | `main.agent.watchlists` | Deletes matching rows via Delta DeltaTable.delete() |
 | `save_research_note(ticker, note)` | `main.agent.research_notes` | free-text note per ticker |
 | `save_analysis_report(ticker, report_text)` | `main.agent.analysis_reports` | full report + model name + timestamp |
 
@@ -701,7 +704,7 @@ def run_agent(user_query):
 | 1 | `%pip install openai` + kernel restart |
 | 2 | Imports + OpenAI client → Databricks Foundation Models |
 | 3 | Create `main.agent.*` write tables |
-| 4 | 8 tool function implementations |
+| 4 | 11 tool function implementations |
 | 5 | Tool schemas in OpenAI function-calling format |
 | 6 | Agent runner (agentic loop) |
 | 7 | Test 1 — Apple price + sentiment |
@@ -752,7 +755,7 @@ def run_agent(user_query):
 
 ```
 agent/
-└── 07_agent_tools.ipynb   ✅ AI Agent with 8 tools (5 read + 3 write)
+└── 07_agent_tools.ipynb   ✅ AI Agent with 11 tools (7 read + 4 write)
 ```
 
 ---
@@ -942,7 +945,7 @@ pipeline/
 ✅ Phase 4  — Gold aggregates (4 tables)
 ✅ Phase 5  — Embeddings + Vector Search
 ✅ Phase 6  — CDF → Delta analytics
-✅ Phase 7  — AI Agent (8 tools: 5 read + 3 write)
+✅ Phase 7  — AI Agent (11 tools: 7 read + 4 write)
 ✅ Phase 8  — Databricks App (live, market data loading)
 ✅ Workflow — Daily automated pipeline (Mon-Fri 10 PM IST)
 ✅ Grants   — Unity Catalog access for App
@@ -953,7 +956,7 @@ pipeline/
 ✅ Phase 4 — Gold aggregates          (pipeline/03_gold_aggregates.ipynb)
 ✅ Phase 5 — Embeddings + Vector Search (embeddings/04_embed_and_index.ipynb)
 ✅ Phase 6 — Lakebase CDF → Delta     (cdf/06_cdf_to_delta.ipynb)
-✅ Phase 7 — AI Agent with tools      (agent/07_agent_tools.ipynb)
+✅ Phase 7 — AI Agent (11 tools: 7 read + 4 write) (agent/07_agent_tools.ipynb)
 ✅ Phase 8 — Databricks App frontend  (app/app.py)
 ```
 
@@ -1006,7 +1009,7 @@ ai-stock-research-assistant/
 ├── cdf/
 │   └── 06_cdf_to_delta.ipynb       ✅ Delta CDF → analytics table
 ├── agent/
-│   └── 07_agent_tools.ipynb        ✅ AI Agent (8 tools: 5 read + 3 write)
+│   └── 07_agent_tools.ipynb        ✅ AI Agent (11 tools: 7 read + 4 write)
 └── app/
     └── app.py                      ✅ Gradio frontend (Databricks App)
 ```
