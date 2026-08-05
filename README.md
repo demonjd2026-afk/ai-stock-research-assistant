@@ -1,119 +1,136 @@
 # 📈 AI Stock Market Research Assistant
 
-> An AI-powered stock research platform built on the **Databricks Lakehouse** — combining real-time market data ingestion via the Massive Stocks API, semantic RAG over financial news and earnings filings, and an agentic frontend that reads and writes to a Lakebase-backed pipeline.
+> An AI-powered stock research platform built on the **Databricks Lakehouse** — combining real-time market data ingestion via the Massive Stocks API (Polygon.io), semantic RAG over financial news, a multi-tool AI Agent, and a live Gradio frontend deployed on Databricks Apps.
 
-Built as part of the [Databricks AI Bootcamp Capstone](https://github.com/EcZachly/databricks-ai-bootcamp-capstone) by Zach Wilson.
+**GitHub:** [demonjd2026-afk/ai-stock-research-assistant](https://github.com/demonjd2026-afk/ai-stock-research-assistant)  
+**Capstone:** [Databricks AI Bootcamp](https://github.com/EcZachly/databricks-ai-bootcamp-capstone) by Zach Wilson
 
 ---
 
-## 🚦 Build Progress
+## 🚦 Build Status
 
 | Phase | Description | Status |
 |---|---|---|
-| **Phase 0** | Workspace setup — GitHub, Databricks, Lakebase, Secrets | ✅ Complete |
-| **Phase 1** | Lakebase schema — 8 tables, CDF enabled | ✅ Complete |
-| **Phase 2** | Bronze ingestion — Massive Stocks API → Delta | ✅ Complete |
-| **Phase 3** | Silver transformation — cleaning + normalization | ✅ Complete |
-| **Phase 4** | Gold aggregates — analytics-ready tables | ✅ Complete |
-| **Phase 5** | Embeddings — news/filings → Vector Search index | ✅ Complete |
-| **Phase 6** | CDF pipeline — Lakebase → Delta analytics table | ✅ Complete |
-| **Phase 7** | AI Agent — tools for read + write actions | ✅ Complete |
-| **Phase 8** | Databricks App — Gradio frontend | ✅ Complete |
-| **Workflow** | Daily automated pipeline (Mon-Fri 10 PM IST) | ✅ Complete |
+| **Phase 0** | Workspace setup — GitHub, Databricks, Secrets | ✅ Complete |
+| **Phase 1** | Lakebase schema — 8 Postgres tables with CDF | ✅ Complete |
+| **Phase 2** | Bronze ingestion — Polygon API → Delta | ✅ Complete |
+| **Phase 3** | Silver transformation — clean, deduplicate, enrich | ✅ Complete |
+| **Phase 4** | Gold aggregates — 4 analytics-ready tables | ✅ Complete |
+| **Phase 5** | Embeddings — BGE Large → AI Search index | ✅ Complete |
+| **Phase 6** | CDF pipeline — Delta CDF → analytics table | ✅ Complete |
+| **Phase 7** | AI Agent — 8 tools (5 read + 3 write) | ✅ Complete |
+| **Phase 8** | Databricks App — live Gradio frontend | ✅ Complete |
+| **Workflow** | Daily automated pipeline (Mon–Fri) | ✅ Complete |
 
 ---
 
-## 🏗️ Architecture Overview
+## 🏗️ Architecture
 
 ```
-                        ┌─────────────────────┐
-                        │   Massive Stocks API  │
-                        │  (REST — ticks, OHLCV,│
-                        │  fundamentals, news)  │
-                        └──────────┬────────────┘
-                                   │  PySpark Ingestion
-                    ┌──────────────▼──────────────┐
-                    │           BRONZE             │
-                    │   Raw Delta tables (append)  │
-                    └──────────────┬───────────────┘
-                                   │  Cleaning + Dedup
-                    ┌──────────────▼──────────────┐
-                    │           SILVER             │
-                    │  Normalized + typed tables   │
-                    └──────────────┬───────────────┘
-                                   │  Aggregation
-                    ┌──────────────▼──────────────┐
-                    │            GOLD              │
-                    │  Analytics-ready aggregates  │
-                    └──────┬──────────────┬────────┘
-                           │              │
-             ┌─────────────▼──┐    ┌──────▼──────────────┐
-             │    Lakebase     │    │   Vector Search      │
-             │ (Postgres OLTP) │    │  Index (news text +  │
-             │  8 core tables  │    │  earnings summaries) │
-             └────────┬────────┘    └──────────┬───────────┘
-                      │  CDF                    │  Semantic RAG
-          ┌───────────▼────────┐                │
-          │  Analytics Delta   │       ┌─────────▼──────────┐
-          │  (usage tracking,  │       │      AI Agent       │
-          │  agent tool calls) │       │  Tools: read price, │
-          └────────────────────┘       │  search news, write │
-                                       │  watchlists/notes   │
-                                       └─────────┬───────────┘
-                                                 │
-                                       ┌─────────▼───────────┐
-                                       │   Databricks App     │
-                                       │  (Gradio Frontend)   │
-                                       └─────────────────────┘
+Massive/Polygon Stocks API  (20 tickers — 5 sectors)
+           │  REST · OHLCV · News · Fundamentals
+           ▼
+    ┌─────────────┐  PySpark append
+    │   BRONZE    │  raw_companies · raw_price_snapshots · raw_news_articles
+    └──────┬──────┘
+           │  Dedup · Cast · Enrich
+           ▼
+    ┌─────────────┐  Delta overwrite
+    │   SILVER    │  companies · price_snapshots · news_articles · news_for_search
+    └──────┬──────┘
+           │  Aggregate · Join · Rank
+           ▼
+    ┌─────────────┐  Delta overwrite
+    │    GOLD     │  ticker_daily_summary · sector_rankings
+    │             │  sentiment_summary · top_movers
+    └──────┬──────┘
+           │                          │
+           │                    ┌─────▼──────────────────┐
+           │                    │  Databricks AI Search  │
+           │                    │  (BGE Large embeddings) │
+           │                    │  news_for_search_index  │
+           │                    └─────┬──────────────────┘
+           │                          │ semantic RAG
+           ▼                          ▼
+    ┌──────────────────────────────────────┐
+    │            AI AGENT                  │
+    │  Llama 3.3 70B · Function Calling    │
+    │  5 read tools · 3 write tools        │
+    └──────────────┬───────────────────────┘
+                   │ writes
+          ┌────────┼──────────┐
+          ▼        ▼          ▼
+    watchlists  notes    reports
+    (main.agent.*)
+                   │
+                   ▼
+    ┌──────────────────────────┐
+    │   DATABRICKS APP         │
+    │   Gradio · 3-column UI   │
+    │   Suggestions · Chat     │
+    │   Market · Watchlist     │
+    └──────────────────────────┘
+
+    ┌──────────────────────────┐
+    │  LAKEBASE (Postgres 17)  │
+    │  8 OLTP tables · CDF     │
+    │  stock_assistant schema  │
+    └──────────┬───────────────┘
+               │ Delta CDF
+               ▼
+    ┌──────────────────────────┐
+    │  main.analytics          │
+    │  cdf_events · cdf_summary│
+    └──────────────────────────┘
 ```
 
 ---
 
-## ✅ Capstone Requirements Coverage
+## ✅ Capstone Requirements
 
 | Requirement | Implementation |
 |---|---|
-| **Spark data pipeline** | Bronze → Silver → Gold via PySpark (medallion architecture) |
-| **Third-party API** | Massive Stocks API — real-time ticks, OHLCV, fundamentals, news |
-| **Unstructured data** | Embeddings over news articles + earnings call text → Vector Search index |
-| **Databricks App frontend** | Gradio UI hosted and served via Databricks Apps |
-| **AI Agent with tools** | Mosaic AI Agent — reads market data, writes watchlists + research notes |
-| **Lakebase CDF → Delta** | Change Data Feed streams Lakebase writes into a Delta analytics table |
+| **Spark data pipeline** | Bronze → Silver → Gold via PySpark — medallion architecture |
+| **Third-party API** | Massive/Polygon REST API — OHLCV, fundamentals, news (20 tickers) |
+| **Unstructured data + RAG** | News articles embedded via BGE Large → Databricks AI Search index |
+| **Databricks App** | Gradio chat UI hosted on Databricks Apps with live market data |
+| **AI Agent with tools** | Llama 3.3 70B + 8 function-calling tools — reads Gold, writes to Delta |
+| **Lakebase CDF → Delta** | Delta CDF on Silver tables → `main.analytics.cdf_events` |
 
 ---
 
-## 🗂️ Project Structure
+## 🗂️ Repository Structure
 
 ```
 ai-stock-research-assistant/
 │
 ├── pipeline/
-│   ├── 00_setup_config.ipynb         # Ticker registry in Unity Catalog
-│   ├── 01_bronze_ingestion.ipynb     # Polygon API → Bronze Delta tables
-│   ├── 02_silver_transform.ipynb     # Clean, deduplicate, enrich → Silver
-│   ├── 03_gold_aggregates.ipynb      # Analytics aggregates → Gold (4 tables)
-│   └── 05_sync_index.ipynb           # Vector Search index sync (daily workflow)
+│   ├── 00_setup_config.ipynb         # Ticker registry — Unity Catalog config table
+│   ├── 01_bronze_ingestion.ipynb     # Polygon API → Bronze Delta (append)
+│   ├── 02_silver_transform.ipynb     # Dedup · cast · enrich → Silver (overwrite)
+│   ├── 03_gold_aggregates.ipynb      # 4 analytics tables → Gold (overwrite)
+│   └── 05_sync_index.ipynb           # AI Search index sync (Workflow task 4)
 │
 ├── embeddings/
-│   └── 04_embed_and_index.ipynb      # BGE embeddings → Databricks AI Search index
+│   └── 04_embed_and_index.ipynb      # BGE Large embeddings → AI Search index
 │
 ├── lakebase/
-│   ├── 05_schema_ddl.sql             # Lakebase Postgres schema (8 tables)
-│   └── grants.sql                    # Unity Catalog grants (run once)
+│   ├── 05_schema_ddl.sql             # Lakebase Postgres schema (8 tables + CDF)
+│   └── grants.sql                    # Unity Catalog grants — run once before App
 │
 ├── cdf/
-│   └── 06_cdf_to_delta.ipynb         # Delta CDF → analytics table
+│   └── 06_cdf_to_delta.ipynb         # Delta CDF → main.analytics.cdf_events
 │
 ├── agent/
-│   └── 07_agent_tools.ipynb          # AI Agent — 8 tools (5 read + 3 write)
+│   └── 07_agent_tools.ipynb          # AI Agent — 8 tools tested end-to-end
 │
 ├── app/
-│   ├── app.py                        # Databricks App — Gradio chat frontend
-│   └── requirements.txt              # App Python dependencies
+│   ├── app.py                        # Gradio frontend — deployed on Databricks Apps
+│   └── requirements.txt              # App dependencies
 │
 ├── .gitignore
 ├── README.md
-└── SETUP.md                          # Full setup + implementation guide
+└── SETUP.md                          # Full implementation guide with all fixes
 ```
 
 ---
@@ -122,184 +139,153 @@ ai-stock-research-assistant/
 
 | Layer | Technology |
 |---|---|
-| **Cloud platform** | Microsoft Azure |
-| **Data platform** | Databricks (Unity Catalog enabled) |
-| **Compute** | DBR 15.4 LTS ML, Serverless SQL Warehouse |
-| **Ingestion** | PySpark, Massive Stocks REST API |
-| **Storage — batch** | Delta Lake (Bronze / Silver / Gold medallion) |
-| **Storage — OLTP** | Lakebase (Postgres-compatible, Unity Catalog managed) |
-| **Semantic search** | Databricks Vector Search + BGE embeddings |
-| **Change tracking** | Lakebase Change Data Feed → Delta table |
-| **AI agent** | Databricks Mosaic AI Agent Framework (MLflow-traced) |
-| **Frontend** | Databricks Apps (Gradio) |
-| **Orchestration** | Databricks Workflows (multi-task job) |
-| **Secrets** | Databricks Secret Scopes (`dbutils.secrets`) |
-| **Version control** | GitHub + Databricks Git Repos integration |
+| **Platform** | Databricks Free Edition (AWS, Unity Catalog) |
+| **Ingestion** | PySpark · Massive/Polygon REST API · 13s rate-limit handling |
+| **Storage** | Delta Lake — Bronze/Silver/Gold medallion · Lakebase Postgres 17 |
+| **Governance** | Unity Catalog · Secret Scopes · `account users` grants |
+| **Semantic search** | Databricks AI Search · BGE Large embeddings · Delta Sync index |
+| **Change tracking** | Delta CDF (`enableChangeDataFeed`) → analytics Delta table |
+| **AI Model** | `databricks-meta-llama-3-3-70b-instruct` — Foundation Models API |
+| **Agent pattern** | OpenAI-compatible function calling · 5-round agentic loop |
+| **Frontend** | Gradio · Databricks Apps · 3-column layout |
+| **Orchestration** | Databricks Workflows — 4-task DAG · Mon–Fri cron schedule |
+| **Version control** | GitHub · Databricks Git Repos integration |
+| **Secrets** | `dbutils.secrets` · `getpass` for interactive entry |
 
 ---
 
-## 🗄️ Lakebase Schema
+## 📊 Tracked Tickers (20)
 
-Eight relational tables in Postgres-compatible Lakebase:
+| Sector | Tickers |
+|---|---|
+| **Technology** | AAPL · GOOGL · META · MSFT · NVDA |
+| **Finance** | BAC · GS · JPM · MS · V |
+| **Healthcare** | ABBV · JNJ · MRK · PFE · UNH |
+| **Consumer** | AMZN · TSLA · WMT |
+| **Energy** | CVX · XOM |
+
+Managed via `main.config.ticker_config` — add/remove tickers without code changes.
+
+---
+
+## 🗄️ Lakebase Schema (8 tables)
 
 | Table | Purpose |
 |---|---|
-| `users` | Registered users (id, name, email, created_at) |
+| `users` | Registered users |
 | `watchlists` | Named watchlists per user |
-| `watchlist_tickers` | Tickers within each watchlist + add date |
-| `companies` | Company profiles, sector, market cap, fundamentals snapshot |
-| `price_snapshots` | OHLCV snapshots per ticker per timestamp |
-| `news_articles` | Raw news text per ticker (also embedded for RAG) |
+| `watchlist_tickers` | Tickers per watchlist |
+| `companies` | Fundamentals — market cap, sector, description |
+| `price_snapshots` | OHLCV per ticker per timestamp |
+| `news_articles` | Raw news text (also embedded for RAG) |
 | `research_notes` | User-authored notes per ticker |
-| `analysis_reports` | Agent-generated reports logged per session |
+| `analysis_reports` | Agent-generated reports per session |
 
-Change Data Feed is enabled on all tables, streaming writes into a Delta analytics table for usage and agent-action tracking.
+`REPLICA IDENTITY FULL` enabled on all tables for Change Data Feed.
 
 ---
 
-## 🤖 AI Agent Capabilities
+## 🏅 Gold Layer Tables
 
-The agent uses **Databricks Foundation Models API** (`databricks-meta-llama-3-3-70b-instruct`) with OpenAI-compatible function calling. An agentic loop executes tools iteratively until the model produces a final response.
+| Table | Description |
+|---|---|
+| `ticker_daily_summary` | Price + company + sentiment joined — 1 row per ticker (latest date) |
+| `sector_rankings` | Market cap + return + sentiment aggregated by sector |
+| `sentiment_summary` | BULLISH / NEUTRAL / BEARISH signal + HIGH / MEDIUM / LOW confidence |
+| `top_movers` | Daily return ranked — GAINER / LOSER / FLAT per ticker |
 
-### Tools
+---
 
-| Tool | Type | Data Source | Description |
+## 🤖 AI Agent Tools
+
+| Tool | Type | Source | Description |
 |---|---|---|---|
-| `get_price_data` | **Read** | `main.gold.ticker_daily_summary` | Current price, daily return, market cap |
-| `get_sentiment` | **Read** | `main.gold.sentiment_summary` | BULLISH/NEUTRAL/BEARISH signal + confidence |
-| `compare_tickers` | **Read** | `main.gold.ticker_daily_summary` | Side-by-side ticker comparison |
-| `get_top_movers` | **Read** | `main.gold.top_movers` | Today's top gainers and losers |
-| `search_news` | **Read** | Vector Search index (RAG) | Semantic search over news articles |
-| `add_to_watchlist` | **Write** | `main.agent.watchlists` | Save ticker to user watchlist |
-| `save_research_note` | **Write** | `main.agent.research_notes` | Persist user note per ticker |
-| `save_analysis_report` | **Write** | `main.agent.analysis_reports` | Log agent-generated report |
+| `get_price_data` | Read | `main.gold.ticker_daily_summary` | Price, return, market cap |
+| `get_sentiment` | Read | `main.gold.sentiment_summary` | Sentiment signal + confidence |
+| `compare_tickers` | Read | `main.gold.ticker_daily_summary` | Side-by-side comparison |
+| `get_top_movers` | Read | `main.gold.top_movers` | Gainers and losers |
+| `search_news` | Read | AI Search index (RAG) | Semantic news search |
+| `add_to_watchlist` | Write | `main.agent.watchlists` | Save ticker to watchlist |
+| `save_research_note` | Write | `main.agent.research_notes` | Persist research note |
+| `save_analysis_report` | Write | `main.agent.analysis_reports` | Log agent report |
 
-### Agentic Loop
-
-```
-User query
-     ↓
-LLM (Llama 3.3 70B) decides which tools to call
-     ↓
-Tool execution → results sent back to LLM
-     ↓
-LLM synthesizes response (repeats up to 5 rounds)
-     ↓
-Final response returned to user
-```
-
-### Confirmed Working (Test Run)
-
-| Query | Tools Called | Result |
-|---|---|---|
-| Apple price + sentiment | `get_price_data` + `get_sentiment` + `add_to_watchlist` | AAPL $303.42, -1.99%, neutral sentiment |
-| MSFT vs NVDA comparison | `compare_tickers` + `save_research_note` + `add_to_watchlist` | NVDA wins (+4.53% vs +2.42%) |
-| Top movers today | `get_top_movers` | META +4.98% top gainer, AAPL -1.99% loser |
-| AI news search + note | `search_news` (RAG) + `save_research_note` | Semantic search returned NVDA AI articles |
-| Add to watchlist | `add_to_watchlist` × 2 | AAPL + MSFT added to Tech Watchlist |
-
-**Agent write tables after test run:**
-- `main.agent.watchlists` — 4 rows (MSFT + AAPL in Tech Watchlist, NVDA + AAPL in My Watchlist)
-- `main.agent.research_notes` — 2 rows (NVDA momentum + AI sector notes)
-- `main.agent.analysis_reports` — 0 rows (agent chose not to write a report)
-
-### Live App Output (confirmed working)
-
-```
-Market Summary (Refresh Market button):
-  META:  $590.24 (+4.98%) [UP]
-  NVDA:  $206.64 (+4.53%) [UP]
-  GOOGL: $377.65 (+2.56%) [UP]
-  MSFT:  $492.81 (+2.48%) [UP]
-  AAPL:  $303.42 (-1.99%) [DOWN]
-
-Watchlist (Refresh Watchlist button):
-  MSFT - Tech Watchlist
-  AAPL - Tech Watchlist
-  NVDA - My Watchlist
-  AAPL - My Watchlist
-```
+**Agentic loop:** User query → LLM picks tools → execute → results back to LLM → repeat up to 5 rounds → final response.
 
 ---
 
-## 🚀 Setup & Deployment
+## ⚙️ Workflow Automation
+
+**Job:** `stock-assistant-daily-pipeline`
+
+| Task | Notebook | Depends on |
+|---|---|---|
+| `bronze_ingestion` | `pipeline/01_bronze_ingestion` | — |
+| `silver_transform` | `pipeline/02_silver_transform` | bronze_ingestion |
+| `gold_aggregates` | `pipeline/03_gold_aggregates` | silver_transform |
+| `sync_vs_index` | `pipeline/05_sync_index` | gold_aggregates |
+
+**Schedule:** `0 0 22 ? * MON-FRI` — 10 PM IST daily (after US market close)
+
+---
+
+## 🚀 Deployment Guide
 
 ### Prerequisites
+- Databricks Free Edition account — [signup](https://databricks.com)
+- LinkedIn verified (unlocks outbound internet)
+- Massive/Polygon API key — [signup](https://massive.com) (free)
 
-- Databricks workspace on **Azure** with **Unity Catalog** enabled
-- Serverless SQL Warehouse configured
-- Databricks Runtime **15.4 LTS ML** or later
-- **Databricks Apps** enabled in the workspace
-- Free [Massive Stocks API key](https://massive.com)
+### Quick Start
 
-### Step 1 — Clone into Databricks Repos
-
-In your Databricks workspace navigate to **Workspace → Repos → Add Repo** and paste:
-
+**1. Clone repo into Databricks:**
 ```
-https://github.com/demonjd2026-afk/ai-stock-research-assistant
+Workspace → Create → Git folder
+URL: https://github.com/demonjd2026-afk/ai-stock-research-assistant
 ```
 
-### Step 2 — Store API key as a Databricks Secret
-
-```bash
-databricks secrets create-scope capstone
-databricks secrets put --scope capstone --key massive_api_key
-```
-
-Reference in notebooks:
-
+**2. Store API key securely:**
 ```python
-api_key = dbutils.secrets.get(scope="capstone", key="massive_api_key")
+import getpass
+from databricks.sdk import WorkspaceClient
+w = WorkspaceClient()
+w.secrets.create_scope(scope="capstone")
+api_key = getpass.getpass("Paste Massive API key: ")
+w.secrets.put_secret(scope="capstone", key="massive_api_key", string_value=api_key)
+api_key = None
 ```
 
-### Step 3 — Run notebooks in order
+**3. Run Lakebase schema:**
+- Open Lakebase → stock-assistant → SQL Editor
+- Run `lakebase/05_schema_ddl.sql`
 
+**4. Run notebooks in order (Serverless compute):**
 ```
-pipeline/00_setup_config.ipynb      →  configure ticker registry (Unity Catalog)
-pipeline/01_bronze_ingestion.ipynb  →  ingest raw market data (Polygon API)
-pipeline/02_silver_transform.ipynb  →  clean, deduplicate, enrich
-pipeline/03_gold_aggregates.ipynb   →  build 4 analytics aggregates
-embeddings/04_embed_and_index.ipynb →  create Vector Search index (BGE Large)
-lakebase/05_schema_ddl.sql          →  create Lakebase tables (Lakebase SQL Editor)
-cdf/06_cdf_to_delta.ipynb           →  CDF → Delta analytics table
-agent/07_agent_tools.ipynb          →  AI Agent with 8 tools
-app/app.py                          →  deploy via Databricks Apps (Phase 8)
+00_setup_config → 01_bronze_ingestion → 02_silver_transform →
+03_gold_aggregates → 04_embed_and_index → 06_cdf_to_delta → 07_agent_tools
 ```
 
-### Step 4 — Deploy the Databricks App
-
-1. In Databricks navigate to **Compute → Apps → Create App**
-2. Name: `stock-research-assistant`
-3. Point it at `app/app.py` in your Git folder
-4. The app auto-detects Gradio and deploys with a public URL
-5. Open the URL — the chat interface loads with live market data
-
----
-
-## 📦 Requirements
-
+**5. Run Unity Catalog grants:**
 ```
-databricks-sdk>=0.20.0
-mlflow>=2.13.0
-gradio>=4.0.0
-pandas>=2.0.0
-requests>=2.31.0
-psycopg2-binary>=2.9.0
+SQL Editor → run lakebase/grants.sql
+```
+
+**6. Deploy App:**
+```
+Compute → Apps → Create App
+Name: stock-research-assistant
+Source: app/app.py  |  Branch: main  |  Path: app
 ```
 
 ---
 
-## 📊 Analytics (CDF → Delta)
+## 📱 App Features
 
-The **Change Data Feed** on every Lakebase table streams row-level changes into a `capstone.analytics.cdf_events` Delta table, capturing:
-
-- Which agent tool was called and by whom
-- Watchlist additions and removals over time
-- Research note creation frequency
-- Price snapshot ingestion volume per run
-
-This Delta table powers a Gold-layer dashboard notebook showing app usage and agent behaviour over time.
+- **3-column layout** — Suggestions · Chat · Market data
+- **Suggestion panel** — 7 pre-built quick-question buttons
+- **Chat** — Blue user bubbles · Dark assistant bubbles
+- **Input** — Press Enter to send (Claude-style)
+- **Market Summary** — Live prices for all 20 tickers
+- **Watchlist** — Shows saved tickers from agent interactions
 
 ---
 
@@ -307,7 +293,7 @@ This Delta table powers a Gold-layer dashboard notebook showing app usage and ag
 
 **Jayanth Dolai** — Senior Data Engineer  
 6+ years | Azure · Databricks · Microsoft Fabric  
-Certifications: Databricks Data Engineer Associate · DP-700 · DP-600 · DP-900 · Databricks Generative AI Associate
+Certifications: Databricks Data Engineer Associate · DP-700 · DP-600 · DP-900 · Generative AI Associate
 
 [LinkedIn](https://www.linkedin.com/in/jayanth-dolai/) · [GitHub](https://github.com/demonjd2026-afk)
 
@@ -315,4 +301,4 @@ Certifications: Databricks Data Engineer Associate · DP-700 · DP-600 · DP-900
 
 ## 📄 License
 
-MIT License — see [LICENSE](LICENSE) for details.
+MIT — see [LICENSE](LICENSE)

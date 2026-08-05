@@ -79,6 +79,48 @@ def save_analysis_report(ticker, report_text):
     run_sql("INSERT INTO main.agent.analysis_reports(id,user_email,ticker,report_text,agent_model,generated_at) VALUES('" + str(uuid.uuid4()) + "','" + USER_EMAIL + "','" + ticker.upper() + "','" + report_text[:1000].replace("'","''") + "','" + MODEL + "','" + datetime.now().isoformat() + "')")
     return {"status": "success", "message": "Report saved for " + ticker.upper()}
 
+def remove_from_watchlist(ticker, watchlist_name="My Watchlist"):
+    """Remove a ticker from a user watchlist."""
+    result = run_sql("""
+        DELETE FROM main.agent.watchlists
+        WHERE user_email='""" + USER_EMAIL + """'
+        AND ticker='""" + ticker.upper() + """'
+        AND watchlist='""" + watchlist_name + """'
+    """)
+    return {"status": "success", "message": ticker.upper() + " removed from '" + watchlist_name + "'"}
+
+def flag_price_moves(hours_back=24):
+    """Flag notable price moves and news since recent pipeline run."""
+    rows = run_sql("""
+        SELECT t.ticker, t.name, t.close, t.daily_return_pct,
+               t.is_up_day, s.sentiment_signal, t.news_count
+        FROM main.gold.ticker_daily_summary t
+        INNER JOIN (
+            SELECT ticker, MAX(snapshot_date) AS latest_date
+            FROM main.gold.ticker_daily_summary GROUP BY ticker
+        ) latest ON t.ticker = latest.ticker AND t.snapshot_date = latest.latest_date
+        LEFT JOIN main.gold.sentiment_summary s ON t.ticker = s.ticker
+        WHERE ABS(t.daily_return_pct) >= 2.0
+        ORDER BY ABS(t.daily_return_pct) DESC
+        LIMIT 10
+    """)
+    if not rows:
+        return {"message": "No notable price moves (>=2%) detected since last pipeline run", "movers": []}
+    movers = []
+    for r in rows:
+        ret = float(r.get("daily_return_pct") or 0)
+        direction = "UP" if str(r.get("is_up_day","")).lower() == "true" else "DOWN"
+        movers.append({
+            "ticker": r["ticker"],
+            "name": r.get("name",""),
+            "close": r.get("close"),
+            "daily_return_pct": ret,
+            "direction": direction,
+            "sentiment": r.get("sentiment_signal","NEUTRAL"),
+            "news_count": r.get("news_count", 0)
+        })
+    return {"message": str(len(movers)) + " notable moves (>=2%) detected", "movers": movers}
+
 TOOLS = [
     {"type":"function","function":{"name":"get_price_data","description":"Get stock price data","parameters":{"type":"object","properties":{"ticker":{"type":"string"}},"required":["ticker"]}}},
     {"type":"function","function":{"name":"get_sentiment","description":"Get sentiment signal","parameters":{"type":"object","properties":{"ticker":{"type":"string"}},"required":["ticker"]}}},
@@ -87,7 +129,9 @@ TOOLS = [
     {"type":"function","function":{"name":"search_news","description":"Search news articles","parameters":{"type":"object","properties":{"query":{"type":"string"},"num_results":{"type":"integer"}},"required":["query"]}}},
     {"type":"function","function":{"name":"add_to_watchlist","description":"Add ticker to watchlist","parameters":{"type":"object","properties":{"ticker":{"type":"string"},"watchlist_name":{"type":"string"}},"required":["ticker"]}}},
     {"type":"function","function":{"name":"save_research_note","description":"Save research note","parameters":{"type":"object","properties":{"ticker":{"type":"string"},"note":{"type":"string"}},"required":["ticker","note"]}}},
-    {"type":"function","function":{"name":"save_analysis_report","description":"Save analysis report","parameters":{"type":"object","properties":{"ticker":{"type":"string"},"report_text":{"type":"string"}},"required":["ticker","report_text"]}}}
+    {"type":"function","function":{"name":"save_analysis_report","description":"Save analysis report","parameters":{"type":"object","properties":{"ticker":{"type":"string"},"report_text":{"type":"string"}},"required":["ticker","report_text"]}}},
+    {"type":"function","function":{"name":"remove_from_watchlist","description":"Remove a ticker from user watchlist","parameters":{"type":"object","properties":{"ticker":{"type":"string"},"watchlist_name":{"type":"string"}},"required":["ticker"]}}},
+    {"type":"function","function":{"name":"flag_price_moves","description":"Flag notable price moves (>=2%) and news since the last pipeline run","parameters":{"type":"object","properties":{"hours_back":{"type":"integer","description":"lookback window in hours","default":24}}}}}
 ]
 TMAP = {
     "get_price_data":get_price_data, "get_sentiment":get_sentiment,
