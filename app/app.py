@@ -349,4 +349,4 @@ with gr.Blocks(
     msg.submit(fn=chat, inputs=[msg, chatbot], outputs=[msg, chatbot, tool_trace_box])
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(show_api=False)
