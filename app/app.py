@@ -133,23 +133,44 @@ def agent(query, conversation_msgs):
             conversation_msgs.append({"role": "tool", "tool_call_id": tc.get("id"), "content": json.dumps(res, default=str)})
     return "Max rounds reached", conversation_msgs
 
-def chat(question, history_text, conv_state):
+def make_bubble(role, text):
+    if role == "user":
+        return (
+            "<div style='display:flex;justify-content:flex-end;margin:8px 0'>"
+            "<div style='background:#1a56db;color:#fff;padding:10px 16px;border-radius:18px 18px 4px 18px;"
+            "max-width:80%;font-size:14px;line-height:1.5'>"
+            "<b>You</b><br>" + text.replace("\n","<br>") +
+            "</div></div>"
+        )
+    else:
+        return (
+            "<div style='display:flex;justify-content:flex-start;margin:8px 0'>"
+            "<div style='background:#1e2530;color:#e2e8f0;padding:10px 16px;border-radius:18px 18px 18px 4px;"
+            "max-width:80%;font-size:14px;line-height:1.5;border:1px solid #2d3748'>"
+            "<b>Assistant</b><br>" + text.replace("\n","<br>") +
+            "</div></div>"
+        )
+
+CHAT_WRAPPER = (
+    "<div style='height:480px;overflow-y:auto;padding:12px;background:#111827;"
+    "border-radius:8px;border:1px solid #374151'>{}</div>"
+)
+
+def chat(question, html_history, conv_state):
     if not question.strip():
-        return history_text, "", conv_state
+        return html_history, "", conv_state
     try:
         if not conv_state:
             conv_state = [{"role": "system", "content": "You are an AI stock market assistant. Use tools to get current data. Be concise and data-driven."}]
         reply, conv_state = agent(question, conv_state)
-        separator = "\n" + ("=" * 50) + "\n"
-        new_history = history_text + separator + "You: " + question + "\n\nAssistant: " + reply + "\n"
-        return new_history, "", conv_state
+        bubbles = html_history + make_bubble("user", question) + make_bubble("assistant", reply)
+        return bubbles, "", conv_state
     except Exception as e:
-        err = "Error: " + str(e)
-        separator = "\n" + ("=" * 50) + "\n"
-        return history_text + separator + "You: " + question + "\n\nAssistant: " + err + "\n", "", conv_state
+        bubbles = html_history + make_bubble("user", question) + make_bubble("assistant", "Error: " + str(e))
+        return bubbles, "", conv_state
 
 def clear_chat():
-    return "Chat cleared. Ask a new question below.", "", []
+    return "", "", []
 
 def market_summary():
     try:
@@ -188,12 +209,7 @@ with gr.Blocks(title="AI Stock Research Assistant") as demo:
 
     with gr.Row():
         with gr.Column(scale=2):
-            history_box = gr.Textbox(
-                label="Conversation",
-                value="Welcome! Ask me anything about stocks.",
-                lines=15,
-                interactive=False
-            )
+            history_box = gr.HTML(value="<div style='height:480px;overflow-y:auto;padding:12px;background:#111827;border-radius:8px;border:1px solid #374151;color:#9ca3af;font-size:14px'>Welcome! Ask me anything about stocks...</div>")
             question_input = gr.Textbox(
                 label="Your question",
                 placeholder="What is Apple's stock price? Compare MSFT vs NVDA. Top movers today?",
