@@ -36,9 +36,18 @@ def call_llm(messages, tools=None):
     return get_w().api_client.do(
         "POST", "/serving-endpoints/" + MODEL + "/invocations", body=body)
 
-# ── Tool functions ────────────────────────────────────────────────────────────
+# ── Tool functions ─────────────────────────────────────────────────────────────
+
 def get_price_data(ticker):
-    r = run_sql("SELECT ticker,name,close,open,high,low,volume,daily_return_pct,is_up_day,market_cap_billions FROM main.gold.ticker_daily_summary WHERE ticker='" + ticker.upper() + "' LIMIT 1")
+    r = run_sql("""
+        SELECT t.ticker, t.name, t.close, t.open, t.high, t.low,
+               t.volume, t.daily_return_pct, t.is_up_day, t.market_cap_billions, t.sector
+        FROM main.gold.ticker_daily_summary t
+        INNER JOIN (
+            SELECT ticker, MAX(snapshot_date) AS latest_date
+            FROM main.gold.ticker_daily_summary GROUP BY ticker
+        ) l ON t.ticker = l.ticker AND t.snapshot_date = l.latest_date
+        WHERE t.ticker = '""" + ticker.upper() + """' LIMIT 1""")
     return r[0] if r else {"error": "No data for " + ticker}
 
 def get_sentiment(ticker):
@@ -47,7 +56,14 @@ def get_sentiment(ticker):
 
 def compare_tickers(tickers):
     t = ", ".join(["'" + x.upper() + "'" for x in tickers])
-    return run_sql("SELECT ticker,name,close,daily_return_pct,market_cap_billions,avg_sentiment_score FROM main.gold.ticker_daily_summary WHERE ticker IN (" + t + ") ORDER BY daily_return_pct DESC")
+    return run_sql("""
+        SELECT t.ticker, t.name, t.close, t.daily_return_pct, t.market_cap_billions, t.avg_sentiment_score
+        FROM main.gold.ticker_daily_summary t
+        INNER JOIN (
+            SELECT ticker, MAX(snapshot_date) AS latest_date
+            FROM main.gold.ticker_daily_summary GROUP BY ticker
+        ) l ON t.ticker = l.ticker AND t.snapshot_date = l.latest_date
+        WHERE t.ticker IN (""" + t + """) ORDER BY t.daily_return_pct DESC""")
 
 def get_top_movers(limit=5):
     r = run_sql("SELECT return_rank,ticker,name,close,daily_return_pct,mover_type FROM main.gold.top_movers ORDER BY return_rank LIMIT " + str(limit * 2))
@@ -59,17 +75,59 @@ def search_news(query, num_results=3):
         from databricks.ai_search.client import VectorSearchClient
         idx  = VectorSearchClient(disable_notice=True).get_index(
             "stock-assistant-vs", "main.silver.news_for_search_index")
-        hits = idx.similarity_search(
-            query_text=query,
-            columns=["ticker","title","sentiment"],
-            num_results=num_results).get("result",{}).get("data_array",[])
+        hits = idx.similarity_search(query_text=query,
+            columns=["ticker","title","sentiment"], num_results=num_results
+        ).get("result", {}).get("data_array", [])
         return [dict(zip(["ticker","title","sentiment"], h)) for h in hits]
     except:
         return run_sql("SELECT ticker,title,sentiment FROM main.silver.news_articles WHERE LOWER(title) LIKE '%" + query.lower() + "%' LIMIT " + str(num_results))
 
+def get_sector_rankings():
+    rows = run_sql("""
+        SELECT sector,
+               COUNT(ticker)                      AS ticker_count,
+               ROUND(SUM(market_cap_billions),2)  AS total_market_cap_billions,
+               ROUND(AVG(daily_return_pct),4)     AS avg_daily_return_pct,
+               ROUND(AVG(avg_sentiment_score),4)  AS avg_sentiment_score,
+               SUM(news_count)                    AS total_news_count
+        FROM main.gold.ticker_daily_summary t
+        INNER JOIN (
+            SELECT ticker, MAX(snapshot_date) AS latest_date
+            FROM main.gold.ticker_daily_summary GROUP BY ticker
+        ) l ON t.ticker = l.ticker AND t.snapshot_date = l.latest_date
+        WHERE sector IS NOT NULL
+        GROUP BY sector
+        ORDER BY total_market_cap_billions DESC""")
+    return rows if rows else [{"error": "No sector data available"}]
+
+def flag_price_moves(hours_back=24):
+    rows = run_sql("""
+        SELECT t.ticker, t.name, t.close, t.daily_return_pct, t.is_up_day,
+               s.sentiment_signal, t.news_count
+        FROM main.gold.ticker_daily_summary t
+        INNER JOIN (
+            SELECT ticker, MAX(snapshot_date) AS latest_date
+            FROM main.gold.ticker_daily_summary GROUP BY ticker
+        ) l ON t.ticker = l.ticker AND t.snapshot_date = l.latest_date
+        LEFT JOIN main.gold.sentiment_summary s ON t.ticker = s.ticker
+        WHERE ABS(t.daily_return_pct) >= 2.0
+        ORDER BY ABS(t.daily_return_pct) DESC LIMIT 10""")
+    if not rows:
+        return {"message": "No notable price moves (>=2%) detected", "movers": []}
+    movers = [{"ticker": r["ticker"], "name": r.get("name",""),
+               "close": r.get("close"),
+               "daily_return_pct": float(r.get("daily_return_pct") or 0),
+               "direction": "UP" if str(r.get("is_up_day","")).lower()=="true" else "DOWN",
+               "sentiment": r.get("sentiment_signal","NEUTRAL")} for r in rows]
+    return {"message": str(len(movers)) + " notable moves (>=2%) detected", "movers": movers}
+
 def add_to_watchlist(ticker, watchlist_name="My Watchlist"):
     run_sql("INSERT INTO main.agent.watchlists(id,user_email,watchlist,ticker,added_at) VALUES('" + str(uuid.uuid4()) + "','" + USER_EMAIL + "','" + watchlist_name + "','" + ticker.upper() + "','" + datetime.now().isoformat() + "')")
     return {"status": "success", "message": ticker.upper() + " added to '" + watchlist_name + "'"}
+
+def remove_from_watchlist(ticker, watchlist_name="My Watchlist"):
+    run_sql("DELETE FROM main.agent.watchlists WHERE user_email='" + USER_EMAIL + "' AND ticker='" + ticker.upper() + "' AND watchlist='" + watchlist_name + "'")
+    return {"status": "success", "message": ticker.upper() + " removed from '" + watchlist_name + "'"}
 
 def save_research_note(ticker, note):
     run_sql("INSERT INTO main.agent.research_notes(id,user_email,ticker,note,created_at) VALUES('" + str(uuid.uuid4()) + "','" + USER_EMAIL + "','" + ticker.upper() + "','" + note[:500].replace("'","''") + "','" + datetime.now().isoformat() + "')")
@@ -79,101 +137,40 @@ def save_analysis_report(ticker, report_text):
     run_sql("INSERT INTO main.agent.analysis_reports(id,user_email,ticker,report_text,agent_model,generated_at) VALUES('" + str(uuid.uuid4()) + "','" + USER_EMAIL + "','" + ticker.upper() + "','" + report_text[:1000].replace("'","''") + "','" + MODEL + "','" + datetime.now().isoformat() + "')")
     return {"status": "success", "message": "Report saved for " + ticker.upper()}
 
-def remove_from_watchlist(ticker, watchlist_name="My Watchlist"):
-    """Remove a ticker from a user watchlist."""
-    result = run_sql("""
-        DELETE FROM main.agent.watchlists
-        WHERE user_email='""" + USER_EMAIL + """'
-        AND ticker='""" + ticker.upper() + """'
-        AND watchlist='""" + watchlist_name + """'
-    """)
-    return {"status": "success", "message": ticker.upper() + " removed from '" + watchlist_name + "'"}
-
-def get_sector_rankings():
-    """Get sector-level market cap and performance rankings."""
-    rows = run_sql("""
-        SELECT sector, ticker_count, total_market_cap_billions,
-               avg_daily_return_pct, avg_sentiment_score,
-               sector_rank, tickers
-        FROM main.gold.sector_rankings
-        ORDER BY sector_rank
-    """)
-    return rows if rows else {"error": "No sector data available"}
-
-def flag_price_moves(hours_back=24):
-    """Flag notable price moves and news since recent pipeline run."""
-    rows = run_sql("""
-        SELECT t.ticker, t.name, t.close, t.daily_return_pct,
-               t.is_up_day, s.sentiment_signal, t.news_count
-        FROM main.gold.ticker_daily_summary t
-        INNER JOIN (
-            SELECT ticker, MAX(snapshot_date) AS latest_date
-            FROM main.gold.ticker_daily_summary GROUP BY ticker
-        ) latest ON t.ticker = latest.ticker AND t.snapshot_date = latest.latest_date
-        LEFT JOIN main.gold.sentiment_summary s ON t.ticker = s.ticker
-        WHERE ABS(t.daily_return_pct) >= 2.0
-        ORDER BY ABS(t.daily_return_pct) DESC
-        LIMIT 10
-    """)
-    if not rows:
-        return {"message": "No notable price moves (>=2%) detected since last pipeline run", "movers": []}
-    movers = []
-    for r in rows:
-        ret = float(r.get("daily_return_pct") or 0)
-        direction = "UP" if str(r.get("is_up_day","")).lower() == "true" else "DOWN"
-        movers.append({
-            "ticker": r["ticker"],
-            "name": r.get("name",""),
-            "close": r.get("close"),
-            "daily_return_pct": ret,
-            "direction": direction,
-            "sentiment": r.get("sentiment_signal","NEUTRAL"),
-            "news_count": r.get("news_count", 0)
-        })
-    return {"message": str(len(movers)) + " notable moves (>=2%) detected", "movers": movers}
-
-def get_sector_rankings() -> list:
-    """Get sector rankings by total market cap with avg return and sentiment."""
-    rows = run_sql("""
-        SELECT sector,
-               COUNT(ticker)                         AS ticker_count,
-               ROUND(SUM(market_cap_billions), 2)    AS total_market_cap_billions,
-               ROUND(AVG(market_cap_billions), 2)    AS avg_market_cap_billions,
-               ROUND(AVG(daily_return_pct), 4)       AS avg_daily_return_pct,
-               ROUND(AVG(avg_sentiment_score), 4)    AS avg_sentiment_score,
-               SUM(news_count)                       AS total_news_count
-        FROM main.gold.ticker_daily_summary t
-        INNER JOIN (
-            SELECT ticker, MAX(snapshot_date) AS latest_date
-            FROM main.gold.ticker_daily_summary GROUP BY ticker
-        ) latest ON t.ticker = latest.ticker AND t.snapshot_date = latest.latest_date
-        WHERE sector IS NOT NULL
-        GROUP BY sector
-        ORDER BY total_market_cap_billions DESC
-    """)
-    return rows if rows else [{"error": "No sector data available"}]
-
+# ── Tool schemas ───────────────────────────────────────────────────────────────
 TOOLS = [
-    {"type":"function","function":{"name":"get_price_data","description":"Get stock price data","parameters":{"type":"object","properties":{"ticker":{"type":"string"}},"required":["ticker"]}}},
-    {"type":"function","function":{"name":"get_sentiment","description":"Get sentiment signal","parameters":{"type":"object","properties":{"ticker":{"type":"string"}},"required":["ticker"]}}},
-    {"type":"function","function":{"name":"compare_tickers","description":"Compare multiple tickers","parameters":{"type":"object","properties":{"tickers":{"type":"array","items":{"type":"string"}}},"required":["tickers"]}}},
-    {"type":"function","function":{"name":"get_top_movers","description":"Get top gainers and losers","parameters":{"type":"object","properties":{"limit":{"type":"integer"}}}}},
-    {"type":"function","function":{"name":"search_news","description":"Search news articles","parameters":{"type":"object","properties":{"query":{"type":"string"},"num_results":{"type":"integer"}},"required":["query"]}}},
-    {"type":"function","function":{"name":"add_to_watchlist","description":"Add ticker to watchlist","parameters":{"type":"object","properties":{"ticker":{"type":"string"},"watchlist_name":{"type":"string"}},"required":["ticker"]}}},
-    {"type":"function","function":{"name":"save_research_note","description":"Save research note","parameters":{"type":"object","properties":{"ticker":{"type":"string"},"note":{"type":"string"}},"required":["ticker","note"]}}},
-    {"type":"function","function":{"name":"save_analysis_report","description":"Save analysis report","parameters":{"type":"object","properties":{"ticker":{"type":"string"},"report_text":{"type":"string"}},"required":["ticker","report_text"]}}},
-    {"type":"function","function":{"name":"remove_from_watchlist","description":"Remove a ticker from user watchlist","parameters":{"type":"object","properties":{"ticker":{"type":"string"},"watchlist_name":{"type":"string"}},"required":["ticker"]}}},
-    {"type":"function","function":{"name":"get_sector_rankings","description":"Get sector-level market cap rankings and performance breakdown","parameters":{"type":"object","properties":{}}}},
-    {"type":"function","function":{"name":"flag_price_moves","description":"Flag notable price moves (>=2%) and news since the last pipeline run","parameters":{"type":"object","properties":{"hours_back":{"type":"integer","description":"lookback window in hours","default":24}}}}},
-    {"type":"function","function":{"name":"get_sector_rankings","description":"Get sector rankings by total market cap, average daily return, and sentiment score","parameters":{"type":"object","properties":{}}}}
+    {"type":"function","function":{"name":"get_price_data","description":"Get current price data and metrics for a stock ticker","parameters":{"type":"object","properties":{"ticker":{"type":"string"}},"required":["ticker"]}}},
+    {"type":"function","function":{"name":"get_sentiment","description":"Get news sentiment signal (BULLISH/NEUTRAL/BEARISH) for a ticker","parameters":{"type":"object","properties":{"ticker":{"type":"string"}},"required":["ticker"]}}},
+    {"type":"function","function":{"name":"compare_tickers","description":"Compare multiple tickers on price, return, and sentiment","parameters":{"type":"object","properties":{"tickers":{"type":"array","items":{"type":"string"}}},"required":["tickers"]}}},
+    {"type":"function","function":{"name":"get_top_movers","description":"Get today's top gaining and losing stocks","parameters":{"type":"object","properties":{"limit":{"type":"integer"}}}}},
+    {"type":"function","function":{"name":"search_news","description":"Semantic search over recent stock news and company profiles","parameters":{"type":"object","properties":{"query":{"type":"string"},"num_results":{"type":"integer"}},"required":["query"]}}},
+    {"type":"function","function":{"name":"get_sector_rankings","description":"Get sector rankings by total market cap, average daily return, and sentiment — use for sector analysis or market cap breakdown","parameters":{"type":"object","properties":{}}}},
+    {"type":"function","function":{"name":"flag_price_moves","description":"Flag stocks with notable price moves (>=2%) since the last pipeline run","parameters":{"type":"object","properties":{"hours_back":{"type":"integer"}}}}},
+    {"type":"function","function":{"name":"add_to_watchlist","description":"Add a stock ticker to user watchlist","parameters":{"type":"object","properties":{"ticker":{"type":"string"},"watchlist_name":{"type":"string"}},"required":["ticker"]}}},
+    {"type":"function","function":{"name":"remove_from_watchlist","description":"Remove a stock ticker from user watchlist","parameters":{"type":"object","properties":{"ticker":{"type":"string"},"watchlist_name":{"type":"string"}},"required":["ticker"]}}},
+    {"type":"function","function":{"name":"save_research_note","description":"Save a research note about a stock ticker","parameters":{"type":"object","properties":{"ticker":{"type":"string"},"note":{"type":"string"}},"required":["ticker","note"]}}},
+    {"type":"function","function":{"name":"save_analysis_report","description":"Save an analysis report for a stock ticker","parameters":{"type":"object","properties":{"ticker":{"type":"string"},"report_text":{"type":"string"}},"required":["ticker","report_text"]}}}
 ]
+
 TMAP = {
-    "get_price_data":get_price_data, "get_sentiment":get_sentiment,
-    "compare_tickers":compare_tickers, "get_top_movers":get_top_movers,
-    "search_news":search_news, "add_to_watchlist":add_to_watchlist,
-    "save_research_note":save_research_note, "save_analysis_report":save_analysis_report
+    "get_price_data"       : get_price_data,
+    "get_sentiment"        : get_sentiment,
+    "compare_tickers"      : compare_tickers,
+    "get_top_movers"       : get_top_movers,
+    "search_news"          : search_news,
+    "get_sector_rankings"  : get_sector_rankings,
+    "flag_price_moves"     : flag_price_moves,
+    "add_to_watchlist"     : add_to_watchlist,
+    "remove_from_watchlist": remove_from_watchlist,
+    "save_research_note"   : save_research_note,
+    "save_analysis_report" : save_analysis_report,
 }
 
+SYSTEM = ("You are an AI stock market assistant with access to real-time market data. "
+          "Always use tools to get current data before answering. Be concise and data-driven. "
+          "For sector rankings use get_sector_rankings. For price moves use flag_price_moves.")
+
+# ── Agent ──────────────────────────────────────────────────────────────────────
 def agent(query, conv_state):
     conv_state.append({"role":"user","content":query})
     for _ in range(5):
@@ -194,13 +191,14 @@ def agent(query, conv_state):
             fn = tc.get("function",{}).get("name","")
             try: args = json.loads(tc.get("function",{}).get("arguments","{}"))
             except: args = {}
-            res = TMAP[fn](**args) if fn in TMAP else {"error":"Unknown: "+fn}
+            res = TMAP[fn](**args) if fn in TMAP else {"error":"Unknown tool: "+fn}
             conv_state.append({"role":"tool","tool_call_id":tc.get("id"),
                                "content":json.dumps(res, default=str)})
     return "Max rounds reached", conv_state
 
-# ── HTML helpers ──────────────────────────────────────────────────────────────
-def esc(t): return t.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace("\n","<br>")
+# ── Chat UI helpers ────────────────────────────────────────────────────────────
+def esc(t):
+    return (t or "").replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace("\n","<br>")
 
 def user_bubble(text):
     return ("<div style='display:flex;justify-content:flex-end;margin:8px 0 4px 80px'>"
@@ -208,19 +206,17 @@ def user_bubble(text):
             "border-radius:18px 18px 4px 18px;font-size:14px;line-height:1.6;word-wrap:break-word'>"
             + esc(text) + "</div></div>")
 
-def assistant_bubble(text, thinking=False):
-    inner = "<span style='color:#f59e0b;font-size:18px'>&#9881;</span> <i style='color:#94a3b8'>Thinking...</i>" if thinking else esc(text)
+def assistant_bubble(text):
     return ("<div style='display:flex;justify-content:flex-start;margin:4px 80px 8px 0'>"
             "<div style='background:#1e293b;color:#e2e8f0;padding:10px 16px;"
             "border-radius:18px 18px 18px 4px;font-size:14px;line-height:1.6;"
             "border:1px solid #334155;word-wrap:break-word'>"
-            + inner + "</div></div>")
+            + esc(text) + "</div></div>")
 
 def render_chat(pairs):
-    html = "".join(user_bubble(q) + (assistant_bubble("", True) if a is None else assistant_bubble(a))
-                   for q, a in pairs)
+    html = "".join(user_bubble(q) + assistant_bubble(a) for q, a in pairs)
     return ("<div style='height:500px;overflow-y:auto;padding:16px 12px;"
-            "background:#0f172a;border-radius:12px;border:1px solid #1e293b;'>"
+            "background:#0f172a;border-radius:12px;border:1px solid #1e293b'>"
             + html + "</div>")
 
 WELCOME = ("<div style='height:500px;display:flex;align-items:center;justify-content:center;"
@@ -231,23 +227,12 @@ WELCOME = ("<div style='height:500px;display:flex;align-items:center;justify-con
            "<p style='font-size:12px;margin:6px 0 0;color:#334155'>Press Enter or ↑ to send</p>"
            "</div></div>")
 
-SUGGESTIONS = [
-    ("🍎", "Apple stock",     "What is Apple's current price and sentiment?"),
-    ("🏆", "Top movers",      "What are today's top gainers and losers?"),
-    ("⚡", "MSFT vs NVDA",    "Compare MSFT and NVDA — which has better momentum?"),
-    ("📰", "AI stocks news",  "Search for recent AI technology stocks news"),
-    ("📋", "Add to watchlist","Add Apple to my Tech Watchlist"),
-    ("📊", "Sector view",     "Show me sector rankings and market cap breakdown"),
-    ("💡", "Best pick today", "Which stock has the best combination of price gain and positive sentiment?"),
-]
-
-# ── Chat handler (generator for instant question display) ─────────────────────
 def chat(question, pairs, conv_state):
     if not question.strip():
         return render_chat(pairs) if pairs else WELCOME, "", pairs, conv_state
     try:
         if not conv_state:
-            conv_state = [{"role":"system","content":"You are an AI stock market assistant. Use tools to get real data. Be concise."}]
+            conv_state = [{"role":"system","content":SYSTEM}]
         reply, conv_state = agent(question, conv_state)
     except Exception as e:
         reply = "Error: " + str(e)
@@ -256,81 +241,71 @@ def chat(question, pairs, conv_state):
 
 def clear_chat(): return WELCOME, "", [], []
 
-# ── Sidebar helpers ───────────────────────────────────────────────────────────
+# ── Sidebar helpers ────────────────────────────────────────────────────────────
 def market_fn():
     try:
-        # Get only LATEST snapshot_date per ticker to avoid duplicates
-        # from multiple pipeline runs (each run adds a new date to Silver)
         rows = run_sql("""
             SELECT t.ticker, t.close, t.daily_return_pct, t.is_up_day
             FROM main.gold.ticker_daily_summary t
             INNER JOIN (
                 SELECT ticker, MAX(snapshot_date) AS latest_date
-                FROM main.gold.ticker_daily_summary
-                GROUP BY ticker
-            ) latest
-            ON t.ticker = latest.ticker
-            AND t.snapshot_date = latest.latest_date
-            ORDER BY t.daily_return_pct DESC
-        """)
+                FROM main.gold.ticker_daily_summary GROUP BY ticker
+            ) l ON t.ticker = l.ticker AND t.snapshot_date = l.latest_date
+            ORDER BY t.daily_return_pct DESC""")
         if not rows: return "No data yet. Run pipeline first."
         lines = []
         for r in rows:
-            d    = "🟢" if str(r.get("is_up_day","")).lower() == "true" else "🔴"
+            d    = "🟢" if str(r.get("is_up_day","")).lower()=="true" else "🔴"
             ret  = float(r.get("daily_return_pct") or 0)
             sign = "+" if ret >= 0 else ""
             lines.append(d + " " + r["ticker"] + "  $" + str(r["close"]) +
-                        "  (" + sign + str(round(ret, 2)) + "%)")
+                        "  (" + sign + str(round(ret,2)) + "%)")
         return "\n".join(lines)
     except Exception as e: return "Error: " + str(e)
 
 def watchlist_fn():
     try:
-        rows = run_sql("SELECT ticker,watchlist FROM main.agent.watchlists WHERE user_email='" + USER_EMAIL + "' ORDER BY added_at DESC LIMIT 10")
+        rows = run_sql("SELECT DISTINCT ticker, watchlist FROM main.agent.watchlists WHERE user_email='" + USER_EMAIL + "' ORDER BY ticker")
         if not rows: return "No tickers yet."
-        seen  = set(); lines = []
-        for r in rows:
-            key = r["ticker"] + r["watchlist"]
-            if key in seen: continue
-            seen.add(key); lines.append("• " + r["ticker"] + "  —  " + r["watchlist"])
-        return "\n".join(lines)
+        return "\n".join("• " + r["ticker"] + "  —  " + r["watchlist"] for r in rows)
     except Exception as e: return "Error: " + str(e)
 
-# ── CSS ───────────────────────────────────────────────────────────────────────
+# ── CSS ────────────────────────────────────────────────────────────────────────
 CSS = """
 .gradio-container { max-width:1500px !important; margin:0 auto !important; }
 footer { display:none !important; }
-.sugg-btn {
-    text-align:left !important; padding:10px 14px !important;
+.sugg-btn { text-align:left !important; padding:10px 14px !important;
     border-radius:10px !important; background:#0f172a !important;
     border:1px solid #1e293b !important; color:#94a3b8 !important;
     font-size:13px !important; margin-bottom:6px !important;
-    width:100% !important; cursor:pointer !important; white-space:normal !important;
-    line-height:1.4 !important;
-}
+    width:100% !important; cursor:pointer !important; }
 .sugg-btn:hover { background:#1e293b !important; color:#e2e8f0 !important; border-color:#334155 !important; }
-.send-btn {
-    background:#2563eb !important; border-radius:8px !important;
+.send-btn { background:#2563eb !important; border-radius:8px !important;
     width:40px !important; height:40px !important; min-width:40px !important;
-    padding:0 !important; font-size:18px !important; border:none !important;
-    flex-shrink:0 !important;
-}
+    padding:0 !important; font-size:18px !important; border:none !important; flex-shrink:0 !important; }
 .send-btn:hover { background:#1d4ed8 !important; }
-.clear-btn {
-    background:#1e293b !important; border-radius:8px !important;
+.clear-btn { background:#1e293b !important; border-radius:8px !important;
     width:40px !important; height:40px !important; min-width:40px !important;
-    padding:0 !important; font-size:16px !important; border:1px solid #334155 !important;
-    flex-shrink:0 !important;
-}
+    padding:0 !important; font-size:16px !important; border:1px solid #334155 !important; flex-shrink:0 !important; }
 """
 
-# ── Layout ────────────────────────────────────────────────────────────────────
+SUGGESTIONS = [
+    ("🍎", "Apple stock",      "What is Apple's current stock price and sentiment?"),
+    ("🏆", "Top movers",       "What are today's top gainers and losers?"),
+    ("⚡", "MSFT vs NVDA",     "Compare MSFT and NVDA — which has better momentum today?"),
+    ("📰", "AI stocks news",   "Search for recent AI technology stocks news"),
+    ("📋", "Add to watchlist", "Add Apple to my Tech Watchlist"),
+    ("📊", "Sector view",      "Show me sector rankings and market cap breakdown"),
+    ("🚨", "Notable moves",    "Flag any notable price moves since the last update"),
+    ("💡", "Best pick today",  "Which stock has the best combination of price gain and positive sentiment?"),
+]
+
+# ── Layout ─────────────────────────────────────────────────────────────────────
 with gr.Blocks(css=CSS, title="AI Stock Research Assistant") as demo:
 
     pairs_state = gr.State([])
     conv_state  = gr.State([])
 
-    # Header
     gr.HTML("""
     <div style='text-align:center;padding:20px 0 14px'>
         <h1 style='font-size:26px;font-weight:700;color:#f1f5f9;margin:0 0 4px'>
@@ -343,8 +318,6 @@ with gr.Blocks(css=CSS, title="AI Stock Research Assistant") as demo:
     """)
 
     with gr.Row(equal_height=False):
-
-        # ── LEFT: Suggestions ─────────────────────────────────
         with gr.Column(scale=1, min_width=200):
             gr.HTML("<p style='color:#64748b;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px'>Suggestions</p>")
             btns = []
@@ -352,30 +325,22 @@ with gr.Blocks(css=CSS, title="AI Stock Research Assistant") as demo:
                 b = gr.Button(icon + "  " + label, elem_classes="sugg-btn")
                 btns.append((b, prompt))
 
-        # ── CENTER: Chat ──────────────────────────────────────
         with gr.Column(scale=3):
             chat_html = gr.HTML(value=WELCOME)
-
-            # Input bar
             with gr.Row():
-                msg_input = gr.Textbox(
-                    placeholder="Message Stock Assistant...",
-                    show_label=False, lines=1, scale=10,
-                )
+                msg_input = gr.Textbox(placeholder="Message Stock Assistant...",
+                                       show_label=False, lines=1, scale=10)
                 send_btn  = gr.Button("↑", elem_classes="send-btn", scale=1)
                 clear_btn = gr.Button("🗑️", elem_classes="clear-btn", scale=1)
 
-        # ── RIGHT: Market data ────────────────────────────────
         with gr.Column(scale=1, min_width=220):
             gr.HTML("<p style='color:#64748b;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px'>📊 Market Summary</p>")
-            market_out = gr.Textbox(value="", lines=9, interactive=False, show_label=False)
+            market_out = gr.Textbox(value="", lines=12, interactive=False, show_label=False)
             gr.Button("🔄 Refresh", size="sm").click(fn=market_fn, outputs=market_out)
-
             gr.HTML("<p style='color:#64748b;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;margin:14px 0 6px'>📋 Watchlist</p>")
             wl_out = gr.Textbox(value="", lines=6, interactive=False, show_label=False)
             gr.Button("🔄 Refresh", size="sm").click(fn=watchlist_fn, outputs=wl_out)
 
-    # ── Wire events ───────────────────────────────────────────
     send_args = dict(fn=chat,
                      inputs=[msg_input, pairs_state, conv_state],
                      outputs=[chat_html, msg_input, pairs_state, conv_state])
