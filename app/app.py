@@ -89,6 +89,17 @@ def remove_from_watchlist(ticker, watchlist_name="My Watchlist"):
     """)
     return {"status": "success", "message": ticker.upper() + " removed from '" + watchlist_name + "'"}
 
+def get_sector_rankings():
+    """Get sector-level market cap and performance rankings."""
+    rows = run_sql("""
+        SELECT sector, ticker_count, total_market_cap_billions,
+               avg_daily_return_pct, avg_sentiment_score,
+               sector_rank, tickers
+        FROM main.gold.sector_rankings
+        ORDER BY sector_rank
+    """)
+    return rows if rows else {"error": "No sector data available"}
+
 def flag_price_moves(hours_back=24):
     """Flag notable price moves and news since recent pipeline run."""
     rows = run_sql("""
@@ -121,6 +132,27 @@ def flag_price_moves(hours_back=24):
         })
     return {"message": str(len(movers)) + " notable moves (>=2%) detected", "movers": movers}
 
+def get_sector_rankings() -> list:
+    """Get sector rankings by total market cap with avg return and sentiment."""
+    rows = run_sql("""
+        SELECT sector,
+               COUNT(ticker)                         AS ticker_count,
+               ROUND(SUM(market_cap_billions), 2)    AS total_market_cap_billions,
+               ROUND(AVG(market_cap_billions), 2)    AS avg_market_cap_billions,
+               ROUND(AVG(daily_return_pct), 4)       AS avg_daily_return_pct,
+               ROUND(AVG(avg_sentiment_score), 4)    AS avg_sentiment_score,
+               SUM(news_count)                       AS total_news_count
+        FROM main.gold.ticker_daily_summary t
+        INNER JOIN (
+            SELECT ticker, MAX(snapshot_date) AS latest_date
+            FROM main.gold.ticker_daily_summary GROUP BY ticker
+        ) latest ON t.ticker = latest.ticker AND t.snapshot_date = latest.latest_date
+        WHERE sector IS NOT NULL
+        GROUP BY sector
+        ORDER BY total_market_cap_billions DESC
+    """)
+    return rows if rows else [{"error": "No sector data available"}]
+
 TOOLS = [
     {"type":"function","function":{"name":"get_price_data","description":"Get stock price data","parameters":{"type":"object","properties":{"ticker":{"type":"string"}},"required":["ticker"]}}},
     {"type":"function","function":{"name":"get_sentiment","description":"Get sentiment signal","parameters":{"type":"object","properties":{"ticker":{"type":"string"}},"required":["ticker"]}}},
@@ -131,7 +163,9 @@ TOOLS = [
     {"type":"function","function":{"name":"save_research_note","description":"Save research note","parameters":{"type":"object","properties":{"ticker":{"type":"string"},"note":{"type":"string"}},"required":["ticker","note"]}}},
     {"type":"function","function":{"name":"save_analysis_report","description":"Save analysis report","parameters":{"type":"object","properties":{"ticker":{"type":"string"},"report_text":{"type":"string"}},"required":["ticker","report_text"]}}},
     {"type":"function","function":{"name":"remove_from_watchlist","description":"Remove a ticker from user watchlist","parameters":{"type":"object","properties":{"ticker":{"type":"string"},"watchlist_name":{"type":"string"}},"required":["ticker"]}}},
-    {"type":"function","function":{"name":"flag_price_moves","description":"Flag notable price moves (>=2%) and news since the last pipeline run","parameters":{"type":"object","properties":{"hours_back":{"type":"integer","description":"lookback window in hours","default":24}}}}}
+    {"type":"function","function":{"name":"get_sector_rankings","description":"Get sector-level market cap rankings and performance breakdown","parameters":{"type":"object","properties":{}}}},
+    {"type":"function","function":{"name":"flag_price_moves","description":"Flag notable price moves (>=2%) and news since the last pipeline run","parameters":{"type":"object","properties":{"hours_back":{"type":"integer","description":"lookback window in hours","default":24}}}}},
+    {"type":"function","function":{"name":"get_sector_rankings","description":"Get sector rankings by total market cap, average daily return, and sentiment score","parameters":{"type":"object","properties":{}}}}
 ]
 TMAP = {
     "get_price_data":get_price_data, "get_sentiment":get_sentiment,
