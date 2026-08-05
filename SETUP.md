@@ -192,6 +192,78 @@ UPDATE main.config.ticker_config SET active = true WHERE ticker = 'JPM'
 - 13-second sleep between API calls — respects free tier rate limit (5 req/min)
 - All numeric fields explicitly cast to prevent Spark type inference errors
 
+### Notebook Logic — `01_bronze_ingestion.ipynb`
+
+The notebook is structured into 8 cells:
+
+**Cell 1 — Imports and config**
+Imports `requests`, `json`, `uuid`, `time`, `datetime`. Generates a unique `BATCH_ID` (UUID) per run used for lineage tracking across all three tables. Sets `RUN_DATE` and `INGESTED_AT` timestamps.
+
+**Cell 2 — Load API key**
+Loads the Massive API key securely from Databricks Secrets:
+```python
+API_KEY = dbutils.secrets.get(scope="capstone", key="massive_api_key")
+BASE_URL = "https://api.polygon.io"  # api.massive.com blocked on Free Edition
+```
+Auth is passed as a query parameter `?apiKey=KEY` — not a Bearer header.
+
+**Cell 3 — Load active tickers from Unity Catalog**
+Instead of hardcoding tickers, the notebook reads from `main.config.ticker_config`:
+```python
+TICKERS = [
+    row.ticker for row in
+    spark.sql("SELECT ticker FROM main.config.ticker_config WHERE active = true ORDER BY ticker")
+    .collect()
+]
+```
+This means adding/removing tickers never requires code changes.
+
+**Cell 4 — API helper function**
+`api_get(endpoint, params, retries=3)` wraps every API call with:
+- Automatic retry (3 attempts)
+- 429 rate limit detection → waits 60 seconds then retries
+- Timeout of 15 seconds per request
+- Returns parsed JSON or `None` on failure
+
+Rate limit sleep of 13 seconds between each ticker call respects the free tier limit of 5 requests/minute.
+
+**Cell 5 — Company fundamentals ingestion**
+Calls `GET /v3/reference/tickers/{ticker}` per ticker.
+Extracts: name, exchange, market_cap, description, homepage_url, total_employees, list_date, sic_code, sic_description, locale, currency_name, active, type.
+Adds `batch_id`, `run_date`, `raw_json` (full API response), `ingested_at`.
+Writes to `main.bronze.raw_companies` in **append** mode.
+
+**Cell 6 — OHLCV price snapshots ingestion**
+Calls `GET /v2/aggs/ticker/{ticker}/prev` per ticker.
+Extracts: open (o), high (h), low (l), close (c), volume (v), vwap (vw), transactions (n), timestamp_ms (t).
+**Critical fix:** All numeric fields explicitly cast to `float()` or `int()` to prevent Spark type inference conflicts:
+```python
+"open"   : float(r["o"]) if r.get("o") is not None else None,
+"volume" : float(r["v"]) if r.get("v") is not None else None,
+"transactions": int(r["n"]) if r.get("n") is not None else None,
+```
+Writes to `main.bronze.raw_price_snapshots` in **append** mode.
+
+**Cell 7 — News articles ingestion**
+Calls `GET /v2/reference/news` with params: `ticker`, `published_utc.gte` (7 days ago), `order=desc`, `limit=10`.
+Extracts: article_id, title, author, published_utc, article_url, description, keywords (as JSON string), publisher_name, sentiment (from insights array).
+Writes to `main.bronze.raw_news_articles` in **append** mode.
+
+**Cell 8 — Verification**
+Prints row counts per table (this run vs total) and shows 5-row samples from each table to confirm data quality.
+
+### Notebook Logic — `00_setup_config.ipynb`
+
+**Cell 1** — Creates `main.config` schema in Unity Catalog.
+
+**Cell 2** — Creates `main.config.ticker_config` Delta table with columns: ticker, name, sector, active (BOOLEAN), added_at, notes. No DEFAULT values (not supported on Free Edition Delta).
+
+**Cell 3** — Seeds 20 tickers: 5 active (Technology), 15 inactive. Uses `DELETE` then `append` write for idempotency — safe to re-run anytime without duplicates.
+
+**Cell 4** — Displays active and inactive tickers via `spark.sql` for verification.
+
+**Cell 5** — Documents SQL commands to activate tickers (commented out, run as needed).
+
 ### Known Issues & Fixes
 
 | Issue | Cause | Fix |
