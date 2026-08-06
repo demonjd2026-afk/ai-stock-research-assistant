@@ -237,11 +237,18 @@ but Bronze row counts inflated and true replay was impossible.
 
 `upsert_bronze(rows, table, keys)` (cell 6) now MERGEs on the natural grain of each feed:
 
-| Table | Merge key | Why |
-|---|---|---|
-| `raw_companies` | `(ticker, run_date)` | One company profile per ticker per day; history preserved across days |
-| `raw_price_snapshots` | `(ticker, snapshot_date)` | One OHLCV bar per ticker per trading day |
-| `raw_news_articles` | `(article_id, ticker)` | The same article can legitimately arrive under two tickers |
+| Table | Merge key | On match | Why |
+|---|---|---|---|
+| `raw_companies` | `(ticker, run_date)` | Update | One profile per ticker per day; a same-day re-fetch is a correction |
+| `raw_price_snapshots` | `(ticker, snapshot_date)` | Update | One OHLCV bar per ticker per trading day; restated closes should win |
+| `raw_news_articles` | `(article_id, ticker)` | **Insert only** | A published article never changes; rewriting it would clobber lineage |
+
+The split matters. The first two keys include the date, so a match can only be a
+same-day re-fetch and the newer value is the better one. The news key deliberately
+ignores `run_date` — the same article is re-returned for days — so `whenMatchedUpdateAll`
+would match every historical copy and stamp them all with the current `batch_id`,
+destroying the per-run lineage Bronze exists to preserve. News therefore uses
+`update_existing=False` (`whenNotMatchedInsertAll` only).
 
 Two details worth noting:
 - The batch is deduplicated on the key **before** the MERGE — Delta raises an error if two source rows match the same target row, which happens whenever one article is returned for multiple tickers.
