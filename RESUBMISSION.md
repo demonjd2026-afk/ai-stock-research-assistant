@@ -116,6 +116,36 @@ version, appends the events, then advances the watermark:
 
 The "future enhancement" comment that flagged this as incomplete is gone.
 
+**Verified on 2026-08-06.** First run after the change initialized watermarks; the second
+read the feed for real:
+
+```
+--- Incremental CDF capture ---
+  main.silver.companies:       captured  40 change event(s) v14..v15
+  main.silver.price_snapshots: captured  90 change event(s) v14..v15
+  main.silver.news_articles:   captured 266 change event(s) v14..v15
+Total incremental events captured: 396
+```
+
+`main.analytics.cdf_events` now spans `commit_version` 0 through 14 — the original snapshot
+sits at version 0, so anything above it came from `readChangeFeed`, and all three watermarks
+advanced to 15.
+
+The DELETE events are expected: Silver rebuilds with `mode("overwrite")`, so each run
+replaces every row and CDF records that as a delete-then-insert of the whole table (20
+companies produce 40 events per run). These are genuine change events describing a table
+rewrite, not semantic row-level edits — worth reading `cdf_summary` with that in mind.
+
+### Gold sector rankings — found during verification
+
+Not part of the original review, but surfaced while verifying the fixes above.
+`ticker_daily_summary` aliased Polygon's `sic_description` as `sector` (the API returns no
+sector field). SIC descriptions are far more granular than the five curated sectors, so once
+all 20 tickers were activated `sector_rankings` fragmented into **13 groups** — disagreeing
+with the README, with `main.config.ticker_config`, and with the fallback query inside the
+App's own `get_sector_rankings`. Sector is now joined from the curated registry, with SIC
+kept as a `coalesce` fallback. `sector_rankings` returns 5 rows totalling 20 tickers.
+
 ### Data recency phrasing
 
 Both system prompts (`app/app.py` and `agent/07_agent_tools.ipynb`) previously told the model
