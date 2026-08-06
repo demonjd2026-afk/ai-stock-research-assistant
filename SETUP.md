@@ -225,7 +225,7 @@ Adding or removing tickers never requires a code change — the Bronze notebook 
 - `raw_json` column stores the full API response — nothing lost at Bronze layer
 - `batch_id` (UUID per run) on every row enables lineage tracking
 - **Idempotent MERGE upsert** on each feed's natural key — a retry or same-day re-run updates in place rather than appending duplicates
-- Schema auto-merge enabled — handles API schema changes gracefully, as `mergeSchema` did before
+- Schema evolution via the `mergeSchema` write option — handles API schema changes gracefully
 - 13-second sleep between API calls — respects free tier rate limit (5 req/min)
 - All numeric fields explicitly cast to prevent Spark type inference errors
 
@@ -247,6 +247,13 @@ Two details worth noting:
 - The batch is deduplicated on the key **before** the MERGE — Delta raises an error if two source rows match the same target row, which happens whenever one article is returned for multiple tickers.
 - The join uses `<=>` (null-safe equality) so a null key never silently produces duplicates.
 - On first run the table doesn't exist yet, so the helper falls back to a plain create-by-append.
+- Schema evolution uses a zero-row `mergeSchema` append, applied only when the batch introduces a new column. Serverless rejects `spark.databricks.delta.schema.autoMerge.enabled` outright (`CONFIG_NOT_AVAILABLE.SERVERLESS_DELTA_SCHEMA_AUTO_MERGE_ENABLED`), so the write option is the supported path.
+
+### Known Issue & Fix — Serverless schema auto-merge
+
+| Issue | Cause | Fix |
+|---|---|---|
+| `CONFIG_NOT_AVAILABLE.SERVERLESS_DELTA_SCHEMA_AUTO_MERGE_ENABLED` | `spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", ...)` is not settable on Serverless compute | Drop the conf; evolve the target with a zero-row `.option("mergeSchema", "true")` append before the MERGE |
 
 ### Notebook Logic — `01_bronze_ingestion.ipynb` (11 cells)
 
