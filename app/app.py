@@ -266,7 +266,11 @@ SYSTEM = ("You are an AI stock market research assistant. Your data is end-of-da
           "the most recent close from the last completed trading day, not live intraday prices. "
           "Never describe figures as real-time, live, or current-price — say 'as of the latest close'. "
           "Always use tools to get data before answering. Be concise and data-driven. "
-          "For sector rankings use get_sector_rankings. For price moves use flag_price_moves.")
+          "For sector rankings use get_sector_rankings. For price moves use flag_price_moves. "
+          "You can persist work, and should do so without being told which tool to call: "
+          "when the user asks for a report, analysis write-up, or summary to be saved or "
+          "kept, call save_analysis_report. For a shorter observation worth remembering, "
+          "call save_research_note. For tracking a ticker, call add_to_watchlist.")
 
 # ── Agent ──────────────────────────────────────────────────────────────────────
 def agent(query, conv_state):
