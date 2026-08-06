@@ -1139,6 +1139,9 @@ Every screenshot in [`screenshots/`](screenshots/) and where it appears:
 | `08_workflow_with_cdf.png` | Current 5-task job run incl. `cdf_to_delta` |
 | `09_app_watchlist_write.png` | Live Databricks App — agent write + sidebar |
 | `10_agent_watchlist_table.png` | `main.agent.watchlists` rows written by the agent |
+| `11_bronze_merge_idempotent.png` | Delta MERGE metrics — 20 source rows, 0 inserted |
+| `12_bronze_dedupe_verified.png` | Bronze `rows = distinct_keys` on all three tables |
+| `13_bronze_lineage_preserved.png` | Distinct `batch_id`s surviving across ingestion dates |
 
 ---
 
