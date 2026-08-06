@@ -1145,6 +1145,10 @@ Every screenshot in [`screenshots/`](screenshots/) and where it appears:
 | `14_bronze_news_insert_only.png` | News MERGE history — v14 updates 0 rows (insert-if-absent) |
 | `15a_cdf_watermarks.png` | `cdf_watermarks` — last captured Delta version per source |
 | `15b_cdf_watermarks.png` | `cdf_events` by version — reaches v14, past the v0 snapshot |
+| `16_agent_research_notes.png` | `main.agent.research_notes` written by `save_research_note` |
+| `17_agent_analysis_reports.png` | `main.agent.analysis_reports` written by `save_analysis_report` |
+| `18_agent_write_tables_summary.png` | All three agent write tables populated |
+| `19_app_flag_price_moves.png` | Live app — report saved, and `flag_price_moves` scanning all tickers |
 
 ---
 

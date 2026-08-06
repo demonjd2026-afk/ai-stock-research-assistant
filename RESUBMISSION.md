@@ -103,6 +103,22 @@ names from the loop index (never from caller input), and `LIMIT` sizes — where
 markers — are clamped to bounded integers in Python. This removed the unescaped
 `watchlist_name` path in `add_to_watchlist` / `remove_from_watchlist`.
 
+**Verified on 2026-08-06.** A single natural-language request in the deployed app —
+*"Write a full analysis report on NVDA covering price, sentiment and momentum, and save it"* —
+caused the agent to select `save_analysis_report` on its own and persist row `ee14d000…` to
+`main.agent.analysis_reports`. All three write tables are now populated
+(`screenshots/18_agent_write_tables_summary.png`), closing the one genuine evidence gap.
+
+The same session exercised `flag_price_moves` with no ticker argument, which scanned all 20
+tickers and returned 5 movers — the unified contract reproducing the behaviour the app-only
+`hours_back` variant used to provide (`screenshots/19_app_flag_price_moves.png`). The saved
+report opens "As of the latest close", showing the end-of-day prompt change taking effect in
+model output rather than only in configuration.
+
+Reaching that point required one further fix: neither system prompt mentioned the write
+tools, so the model almost never chose `save_analysis_report` and the table had stayed empty
+through every prior test run. Both prompts now state the routing explicitly.
+
 ### CDF → Delta (−1): snapshot only, no incremental read
 
 `cdf/06_cdf_to_delta.ipynb` gained `main.analytics.cdf_watermarks` and a real incremental
