@@ -437,7 +437,14 @@ Gold reads from Silver Delta tables and builds analytics-ready aggregated tables
 ### Gold Tables Produced
 
 **`main.gold.ticker_daily_summary`**
-Master fact table joining Silver price + company + sentiment into one row per ticker per day:
+Master fact table joining Silver price + company + sentiment into one row per ticker per day.
+
+> **Sector source:** `sector` is joined from `main.config.ticker_config`, the curated
+> five-sector registry. Polygon returns no sector field, so this originally fell back to
+> `sic_description` — which is far more granular ("Electronic Computers", "State Commercial
+> Banks") and split `sector_rankings` into **13 groups** once all 20 tickers were activated.
+> SIC remains a `coalesce` fallback for any ticker missing from the registry.
+
 - All price columns (open, high, low, close, volume, vwap)
 - Derived: `daily_return_pct`, `price_range`, `is_up_day`
 - Company metadata: name, exchange_name, sector, market_cap_billions
