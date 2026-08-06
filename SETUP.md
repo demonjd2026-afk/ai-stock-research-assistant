@@ -1142,6 +1142,9 @@ Every screenshot in [`screenshots/`](screenshots/) and where it appears:
 | `11_bronze_merge_idempotent.png` | Delta MERGE metrics — 20 source rows, 0 inserted |
 | `12_bronze_dedupe_verified.png` | Bronze `rows = distinct_keys` on all three tables |
 | `13_bronze_lineage_preserved.png` | Distinct `batch_id`s surviving across ingestion dates |
+| `14_bronze_news_insert_only.png` | News MERGE history — v14 updates 0 rows (insert-if-absent) |
+| `15a_cdf_watermarks.png` | `cdf_watermarks` — last captured Delta version per source |
+| `15b_cdf_watermarks.png` | `cdf_events` by version — reaches v14, past the v0 snapshot |
 
 ---
 
