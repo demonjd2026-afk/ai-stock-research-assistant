@@ -46,6 +46,37 @@ is deduplicated on the key before the MERGE (the same article can arrive under t
 which would otherwise fail with a multiple-source-rows-matched error), and the join uses
 null-safe `<=>`. Query 5 in `lakebase/verify_agent_writes.sql` proves replay-safety.
 
+News uses `update_existing=False` (insert-if-absent). Its key deliberately omits `run_date`
+because the same article is re-returned for days; combined with `whenMatchedUpdateAll` that
+would have rewritten every historical copy's `batch_id` and destroyed per-run lineage.
+Prices and company profiles keep update-on-match — their keys include the date, so a match
+is a same-day re-fetch where the newer value should win.
+
+**Verified on 2026-08-06.** Delta's own MERGE metrics on `main.bronze.raw_companies`
+(`DESCRIBE HISTORY`, version 9):
+
+```
+numSourceRows               : 20
+numTargetRowsMatchedUpdated : 40
+numTargetRowsInserted       : 0
+```
+
+Twenty source rows produced **zero inserts** against a table that already held two
+append-era copies of that day. `raw_price_snapshots` shows the same 20 / 40 / 0.
+
+The duplicate backlog left by the original append-only writes was then cleared once with
+`lakebase/cleanup_bronze_duplicates.sql`:
+
+| Table | Before | After | Key |
+|---|---|---|---|
+| `raw_companies` | 135 | 60 | `(ticker, run_date)` |
+| `raw_price_snapshots` | 115 | 45 | `(ticker, snapshot_date)` |
+| `raw_news_articles` | 757 | 212 | `(article_id, ticker)` |
+
+`rows = distinct_keys` on all three afterwards, and six distinct `batch_id` values survived
+across the three ingestion dates — the cleanup keeps the earliest `ingested_at` per key, so
+the run that first saw each row is still identifiable.
+
 ### AI Agent Quality (−1): tool drift and string-built SQL
 
 **Tool contract unified.** `flag_price_moves` had diverged between the notebook
