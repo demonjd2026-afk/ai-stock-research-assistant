@@ -329,7 +329,8 @@ ai-stock-research-assistant/
 ├── lakebase/
 │   ├── 05_schema_ddl.sql           8 Lakebase Postgres tables (REPLICA IDENTITY FULL)
 │   ├── grants.sql                  Unity Catalog grants for the App identity
-│   └── verify_agent_writes.sql     Proof queries: agent writes, Bronze replay, CDF watermarks
+│   ├── verify_agent_writes.sql     Proof queries: agent writes, Bronze replay, CDF watermarks
+│   └── cleanup_bronze_duplicates.sql  One-time dedupe of pre-MERGE append backlog
 ├── pipeline/
 │   ├── 00_setup_config.ipynb       Ticker registry in Unity Catalog
 │   ├── 01_bronze_ingestion.ipynb   Task 1 — raw ingestion from Polygon API
