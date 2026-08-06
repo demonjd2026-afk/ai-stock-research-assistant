@@ -1,0 +1,567 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AI Stock Market Research Assistant — Capstone</title>
+<style>
+  @page { size: 13.333in 7.5in; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:#0a0d13; --card:#141920; --card2:#1b2129; --border:#262d38;
+    --text:#e6edf3; --muted:#8b949e; --dim:#6e7781;
+    --blue:#58a6ff; --green:#3fb950; --orange:#f0883e; --purple:#a371f7;
+    --gold:#d29922; --red:#f85149; 
+  }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    font-family: -apple-system, "Helvetica Neue", "Segoe UI", Arial, sans-serif;
+    background: var(--bg); color: var(--text);
+  }
+  .slide {
+    width: 13.333in; height: 7.5in; padding: 40px 48px;
+    background: var(--bg); page-break-after: always; position: relative;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .slide:last-child { page-break-after: auto; }
+  h1 { font-size: 34px; font-weight: 700; letter-spacing:-0.4px; }
+  .sub { font-size: 15px; color: var(--muted); margin-top: 6px; }
+  .eyebrow { font-size: 13px; color: var(--dim); margin-bottom: 8px; }
+  .head { margin-bottom: 22px; }
+
+  .grid { display: grid; gap: 16px; flex: 1; }
+  .g2 { grid-template-columns: 1fr 1fr; }
+  .g3 { grid-template-columns: repeat(3, 1fr); }
+  .g2r2 { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; }
+  .imgs { align-content: center; }
+  .slide:last-child .grid { margin-bottom: 58px; }
+  .imgs .cap { margin-top: 11px; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 18px 20px;
+  }
+  .card h3 { font-size: 17px; font-weight: 700; margin-bottom: 10px; }
+  .card p, .card li { font-size: 13.5px; color: var(--muted); line-height: 1.65; }
+  .card ul { list-style: none; }
+  .card li { padding-left: 14px; position: relative; margin-bottom: 7px; }
+  .card li:before { content:"•"; position:absolute; left:0; color: var(--dim); }
+  .card li b, .card p b { color: var(--text); font-weight: 600; }
+  code, .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
+  .card code { color: var(--blue); }
+
+  .accent { border-left: 4px solid var(--blue); }
+  .a-blue{border-left-color:var(--blue)} .a-green{border-left-color:var(--green)}
+  .a-orange{border-left-color:var(--orange)} .a-purple{border-left-color:var(--purple)}
+  .a-gold{border-left-color:var(--gold)} .a-red{border-left-color:var(--red)}
+
+  .pill {
+    display:inline-block; padding: 9px 20px; border-radius: 7px;
+    font-size: 13.5px; font-weight: 700; color:#fff; margin-right: 10px;
+  }
+  .p-orange{background:#e8730c} .p-green{background:#2ea043}
+  .p-purple{background:#8957e5} .p-blue{background:#1f6feb} .p-gold{background:#bb8009}
+
+  .banner {
+    border-radius: 8px; padding: 11px 18px; font-size: 14px; font-weight: 700;
+    color: #fff; text-align: center; margin-bottom: 12px;
+  }
+  .chev { display: flex; gap: 8px; margin-bottom: 20px; }
+  .chev div {
+    flex: 1; border-radius: 8px; padding: 14px 8px; text-align: center;
+    font-size: 12.5px; font-weight: 700; line-height: 1.45; color: #fff;
+  }
+  .shot {
+    width: 100%; border-radius: 8px; border: 1px solid var(--border);
+    display: block; object-fit: contain;
+  }
+  .shotwrap { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .cap { font-size: 12.5px; color: var(--dim); margin-top: 9px; text-align: center; }
+  .foot {
+    position: absolute; left: 48px; right: 48px; bottom: 26px;
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 12.5px; color: var(--dim); border-top: 1px solid var(--border); padding-top: 12px;
+  }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13.5px; }
+  .kv span:nth-child(odd) { color: var(--dim); }
+  .tag { font-size:11.5px; color:var(--dim); text-transform:uppercase; letter-spacing:1px; font-weight:700; }
+  .big { font-size: 30px; font-weight: 700; letter-spacing:-0.5px; }
+  .metric { text-align:center; }
+  .metric .big { color: var(--blue); }
+  .metric p { font-size: 12.5px; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<!-- 1 TITLE -->
+<div class="slide" style="justify-content:center; align-items:center; text-align:center">
+  <h1 style="font-size:48px">📈 AI Stock Market Research Assistant</h1>
+  <div style="font-size:21px; font-weight:700; color:var(--blue); margin-top:16px">
+    Databricks AI Bootcamp · Capstone Project
+  </div>
+  <div class="sub" style="font-size:16px; margin-top:12px">
+    Databricks Free Edition (AWS) · Meta Llama 3.3 70B · Unity Catalog · Databricks Apps
+  </div>
+  <div style="margin-top:30px">
+    <span class="pill p-orange">Medallion Pipeline</span>
+    <span class="pill p-green">Agentic AI (11 tools)</span>
+    <span class="pill p-purple">RAG + Vector Search</span>
+    <span class="pill p-blue">Databricks Apps</span>
+  </div>
+  <div class="card" style="margin-top:38px; width:78%; text-align:left">
+    <h3>Jayanth Dolai &nbsp;·&nbsp; Senior Software Engineer &nbsp;·&nbsp; Optum / UnitedHealth Group</h3>
+    <p style="margin-top:10px">📦 <span style="color:var(--blue)">github.com/demonjd2026-afk/ai-stock-research-assistant</span></p>
+    <p>🔗 linkedin.com/in/jayanth-dolai-7b115213a</p>
+    <p style="margin-top:10px">🌐 <span style="color:var(--blue)">stock-research-assistant-7474654640109575.aws.databricksapps.com</span></p>
+  </div>
+</div>
+
+<!-- 2 PROBLEM -->
+<div class="slide">
+  <div class="head">
+    <h1>Problem Statement</h1>
+    <div class="sub">Why build an AI-native stock research platform on the Databricks Lakehouse?</div>
+  </div>
+  <div class="grid g2r2">
+    <div class="card accent a-orange">
+      <h3 style="color:var(--blue)">⏰ No Governed Pipeline</h3>
+      <p>Analysts rely on manual spreadsheet exports. There is no scheduled, lineage-tracked ingest of market data into a governed lakehouse.</p>
+    </div>
+    <div class="card accent a-blue">
+      <h3 style="color:var(--blue)">🧩 Fragmented Tooling</h3>
+      <p>Price feeds, news, sentiment, and research notes live in separate silos — no unified, queryable platform.</p>
+    </div>
+    <div class="card accent a-purple">
+      <h3 style="color:var(--blue)">🤖 No Agentic Layer</h3>
+      <p>Standard BI dashboards can't answer free-form queries, compare tickers, or take write actions on the user's behalf.</p>
+    </div>
+    <div class="card accent a-red">
+      <h3 style="color:var(--blue)">📰 News–Price Disconnect</h3>
+      <p>Qualitative news signals are never linked to quantitative price moves in a form an analyst can query.</p>
+    </div>
+  </div>
+  <div class="card" style="margin-top:16px">
+    <h3 style="color:var(--green)">✅ Solution</h3>
+    <p style="margin-top:6px">An end-to-end Databricks Lakehouse platform ingesting <b>20 S&amp;P 500 tickers daily at market close</b>,
+    enriching them with news sentiment via semantic RAG, and exposing a <b>Llama 3.3 70B agentic chat interface</b> for
+    research, comparison, and watchlist management. Data is <b>end-of-day</b> — the free Massive/Polygon tier provides
+    previous-close OHLCV, not intraday ticks.</p>
+  </div>
+</div>
+
+<!-- 3 ARCHITECTURE -->
+<div class="slide">
+  <div class="head">
+    <h1>Architecture Overview</h1>
+    <div class="sub">Medallion Lakehouse · Agentic AI · RAG — orchestrated on Databricks Free Edition (AWS)</div>
+  </div>
+  <div class="chev">
+    <div style="background:#8b949e">Polygon<br>REST API</div>
+    <div style="background:#e8730c">🥉 Bronze<br>Raw Ingest</div>
+    <div style="background:#57606a">🥈 Silver<br>Normalized</div>
+    <div style="background:#bb8009">🥇 Gold<br>Aggregates</div>
+    <div style="background:#8957e5">AI Search<br>RAG</div>
+    <div style="background:#2ea043">Llama 3.3<br>70B Agent</div>
+  </div>
+  <div class="grid g2">
+    <div class="card">
+      <h3 style="color:var(--blue)">Tickers (20)</h3>
+      <p>AAPL · GOOGL · META · MSFT · NVDA (Tech) &nbsp;|&nbsp; BAC · GS · JPM · MS · V (Finance)<br>
+      ABBV · JNJ · MRK · PFE · UNH (Healthcare) &nbsp;|&nbsp; AMZN · TSLA · WMT (Consumer) &nbsp;|&nbsp; CVX · XOM (Energy)<br>
+      Registry in <code>main.config.ticker_config</code> — no hardcoded tickers</p>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--blue)">Bronze → Silver</h3>
+      <p>Idempotent <b>MERGE upsert</b> on each feed's natural key · explicit <code>float()/int()</code> casting ·
+      window-function dedup per ticker &amp; date · news deduped by <code>article_id</code> ·
+      Unity Catalog MODIFY grants (UC metastore v1.0)</p>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--blue)">Gold Layer</h3>
+      <p><code>sector_rankings</code>: 5 curated sectors joined from <code>ticker_config</code><br>
+      <code>top_movers</code>: daily % return ranked · <code>sentiment_summary</code>: signal + confidence<br>
+      <code>ticker_daily_summary</code>: price + company + sentiment, one row per ticker</p>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--blue)">AI Agent (11 tools)</h3>
+      <p><b>Read:</b> get_price_data · get_sentiment · compare_tickers · get_top_movers · search_news ·
+      get_sector_rankings · flag_price_moves<br>
+      <b>Write:</b> add_to_watchlist · remove_from_watchlist · save_research_note · save_analysis_report</p>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--blue)">RAG Pipeline</h3>
+      <p>News articles + company profiles → BGE Large embeddings → Databricks AI Search<br>
+      <code>stock-assistant-vs</code> endpoint (ONLINE) · <b>144 documents indexed</b> · synced daily by workflow task 5</p>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--blue)">Workflow Automation</h3>
+      <p><code>stock-assistant-daily-pipeline</code> &nbsp;|&nbsp; <b>5-task DAG</b>: bronze → silver → (cdf + gold) → sync_vs_index<br>
+      Cron <code>0 0 22 ? * MON-FRI</code> Asia/Calcutta &nbsp;|&nbsp; Serverless — no cluster startup latency</p>
+    </div>
+  </div>
+</div>
+
+<!-- 4 MEDALLION -->
+<div class="slide">
+  <div class="head">
+    <h1>Medallion Pipeline Deep Dive</h1>
+    <div class="sub">Bronze → Silver → Gold: idempotency, data quality, and aggregation at each layer</div>
+  </div>
+  <div class="grid g3">
+    <div class="card">
+      <div class="banner" style="background:#e8730c">🥉 Bronze Layer</div>
+      <ul>
+        <li>Polygon REST API (<code>api.polygon.io</code>)</li>
+        <li>20 tickers across 5 sectors</li>
+        <li><b>Idempotent MERGE upsert</b> — replays never duplicate</li>
+        <li>Keys: (ticker, run_date) · (ticker, snapshot_date) · (article_id, ticker)</li>
+        <li>News is <b>insert-if-absent</b> — preserves batch_id lineage</li>
+        <li>Full <code>raw_json</code> retained; ACID writes</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="banner" style="background:#57606a">🥈 Silver Layer</div>
+      <ul>
+        <li>ROW_NUMBER() dedup per ticker &amp; date</li>
+        <li>Exchange codes normalised (XNAS → NASDAQ)</li>
+        <li>Derived: daily_return_pct, price_range, is_up_day</li>
+        <li>News deduped by <code>article_id</code>; sentiment normalised</li>
+        <li>Change Data Feed enabled on every table</li>
+        <li>UC grants: MODIFY (metastore v1.0)</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="banner" style="background:#bb8009">🥇 Gold Layer</div>
+      <ul>
+        <li><code>sector_rankings</code>: 5 curated sectors, RANK() by market cap</li>
+        <li><code>top_movers</code>: daily % return ranked, GAINER/LOSER</li>
+        <li><code>sentiment_summary</code>: BULLISH/NEUTRAL/BEARISH + confidence</li>
+        <li>Sentiment averages joined to price data</li>
+        <li>Serves Agent tools + Vector Search sync task</li>
+        <li>Full recompute — no incremental state to drift</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- 5 AGENT TOOLS -->
+<div class="slide">
+  <div class="head">
+    <h1>Agentic AI — 11 Function-Calling Tools</h1>
+    <div class="sub">Llama 3.3 70B with a 5-round tool-use loop — identical contract in the notebook and the deployed app</div>
+  </div>
+  <div class="grid g3" style="gap:13px">
+    <div class="card"><h3 style="color:var(--blue);font-size:15px">get_price_data</h3><p>Latest close, volume, % return for a ticker from Gold</p></div>
+    <div class="card"><h3 style="color:var(--green);font-size:15px">get_sentiment</h3><p>Sentiment signal + confidence + article count</p></div>
+    <div class="card"><h3 style="color:var(--gold);font-size:15px">compare_tickers</h3><p>Side-by-side price + sentiment across N tickers</p></div>
+    <div class="card"><h3 style="color:var(--orange);font-size:15px">get_top_movers</h3><p>Top gainers and losers for the latest close</p></div>
+    <div class="card"><h3 style="color:var(--purple);font-size:15px">search_news</h3><p>RAG over 144 embedded docs via Databricks AI Search</p></div>
+    <div class="card"><h3 style="color:var(--blue);font-size:15px">get_sector_rankings</h3><p>Market cap + avg return across the 5 sectors</p></div>
+    <div class="card"><h3 style="color:var(--red);font-size:15px">flag_price_moves</h3><p>Scans all tickers, or one if named, for moves ≥ threshold</p></div>
+    <div class="card"><h3 style="color:var(--green);font-size:15px">add_to_watchlist</h3><p>Write: ticker → <code>main.agent.watchlists</code></p></div>
+    <div class="card"><h3 style="color:var(--muted);font-size:15px">remove_from_watchlist</h3><p>Write: delete from <code>main.agent.watchlists</code></p></div>
+    <div class="card"><h3 style="color:var(--orange);font-size:15px">save_research_note</h3><p>Write: note → <code>main.agent.research_notes</code></p></div>
+    <div class="card"><h3 style="color:var(--gold);font-size:15px">save_analysis_report</h3><p>Write: report → <code>main.agent.analysis_reports</code></p></div>
+    <div class="card" style="background:var(--card2)"><h3 style="font-size:15px">SQL Safety</h3><p>All statements bind named parameter markers — no string-concatenated SQL</p></div>
+  </div>
+</div>
+
+<!-- 6 RAG -->
+<div class="slide">
+  <div class="head">
+    <h1>RAG Pipeline — Semantic Search on Financial News</h1>
+    <div class="sub">BGE Large embeddings + Databricks AI Search + Llama 3.3 70B grounded responses</div>
+  </div>
+  <div class="grid g2">
+    <div class="card">
+      <div class="banner" style="background:#e8730c">📰 Data Sources</div>
+      <p>News articles from Polygon (7-day window)<br>
+      Company profile descriptions for all 20 tickers<br>
+      Unioned into <code>main.silver.news_for_search</code><br>
+      <b>144 documents indexed</b></p>
+    </div>
+    <div class="card">
+      <div class="banner" style="background:#8957e5">🧠 Embeddings</div>
+      <p><code>databricks-bge-large-en</code> — endpoint Ready<br>
+      <code>stock-assistant-vs</code> endpoint (ONLINE)<br>
+      Delta Sync index, TRIGGERED mode<br>
+      Synced by workflow task 5 on every run</p>
+    </div>
+    <div class="card">
+      <div class="banner" style="background:#1f6feb">🔍 Query Flow</div>
+      <p>User query → <code>search_news</code> tool<br>
+      <code>search_text</code> = ticker | title | description<br>
+      Top-K similar documents retrieved<br>
+      Context injected into the Llama prompt</p>
+    </div>
+    <div class="card">
+      <div class="banner" style="background:#2ea043">💬 Grounded Response</div>
+      <p>Llama 3.3 70B reasons over retrieved context<br>
+      News grounding reduces hallucination<br>
+      Company profiles answer "what does X do?"<br>
+      Falls back to keyword search if index unavailable</p>
+    </div>
+  </div>
+</div>
+
+<!-- 7 APP -->
+<div class="slide">
+  <div class="head">
+    <h1>Databricks App — Live Deployment</h1>
+    <div class="sub">Gradio 3-column UI · agent chat · end-of-day market summary · watchlist sidebar</div>
+  </div>
+  <div class="shotwrap"><img class="shot" src="../screenshots/19_app_flag_price_moves.png" style="max-height:5.05in; width:auto"></div>
+  <div class="cap">The agent saves an analysis report and flags notable moves across all 20 tickers — both write and scan paths in one session</div>
+</div>
+
+<!-- 8 APP WRITE -->
+<div class="slide">
+  <div class="head">
+    <h1>Agent Write Actions in the App</h1>
+    <div class="sub">Natural-language request → function call → Delta write → sidebar reflects the change</div>
+  </div>
+  <div class="shotwrap"><img class="shot" src="../screenshots/09_app_watchlist_write.png" style="max-height:5.05in; width:auto"></div>
+  <div class="cap">"Add MSFT to my watchlist" → <span class="mono">add_to_watchlist</span> → row in <span class="mono">main.agent.watchlists</span></div>
+</div>
+
+<!-- 9 UNITY CATALOG -->
+<div class="slide">
+  <div class="head">
+    <h1>Unity Catalog — Governed Medallion Schemas</h1>
+    <div class="sub">main.bronze · main.silver · main.gold — plus main.analytics, main.agent, main.config</div>
+  </div>
+  <div class="imgs grid g3" style="gap:14px">
+    <div><img class="shot" src="../screenshots/02_unity_catalog_bronze.png"><div class="cap">Bronze — 3 raw tables</div></div>
+    <div><img class="shot" src="../screenshots/03a_unity_catalog_silver.png"><div class="cap">Silver — 4 tables + managed vector index</div></div>
+    <div><img class="shot" src="../screenshots/03b_unity_catalog_gold.png"><div class="cap">Gold — 4 analytics tables</div></div>
+  </div>
+</div>
+
+<!-- 10 API + RAG EVIDENCE -->
+<div class="slide">
+  <div class="head">
+    <h1>API Ingestion &amp; Semantic Search Source</h1>
+    <div class="sub">Live Polygon ingestion with batch lineage, and the combined search text powering RAG</div>
+  </div>
+  <div class="imgs grid g2" style="gap:16px">
+    <div><img class="shot" src="../screenshots/04b_api_ingestion_output.png"><div class="cap">Bronze ingestion — 20 companies, 20 price snapshots, 118 news articles per run</div></div>
+    <div><img class="shot" src="../screenshots/06b_semantic_search_text.png"><div class="cap"><span class="mono">search_text</span> = ticker | title | description</div></div>
+  </div>
+</div>
+
+<!-- 11 VECTOR SEARCH -->
+<div class="slide">
+  <div class="head">
+    <h1>Vector Search — Index Online</h1>
+    <div class="sub">Delta Sync index with managed BGE Large embeddings, 144 rows indexed</div>
+  </div>
+  <div class="imgs grid g2" style="gap:16px">
+    <div><img class="shot" src="../screenshots/05a_vector_search_index_online.png"><div class="cap">news_for_search_index — Online, Delta Sync, 144 rows</div></div>
+    <div><img class="shot" src="../screenshots/05c_vector_search_endpoint_ready.png"><div class="cap">stock-assistant-vs endpoint — Ready</div></div>
+  </div>
+</div>
+
+<!-- 12 BRONZE IDEMPOTENCY -->
+<div class="slide">
+  <div class="head">
+    <h1>Bronze Idempotency — Verified</h1>
+    <div class="sub">MERGE upsert proves replay-safety in Delta's own operation metrics</div>
+  </div>
+  <div class="imgs grid g2" style="gap:16px">
+    <div><img class="shot" src="../screenshots/11_bronze_merge_idempotent.png"><div class="cap">20 source rows → <b>0 inserted</b>, 40 matched-updated. Under append this would insert 20.</div></div>
+    <div><img class="shot" src="../screenshots/12_bronze_dedupe_verified.png"><div class="cap">rows = distinct_keys on all three Bronze tables after one-time backlog cleanup</div></div>
+  </div>
+</div>
+
+<!-- 13 CDF -->
+<div class="slide">
+  <div class="head">
+    <h1>Change Data Feed — Incremental Capture</h1>
+    <div class="sub">Watermarked <span class="mono">readChangeFeed</span> — not a repeated full snapshot</div>
+  </div>
+  <div class="imgs grid g2" style="gap:16px">
+    <div><img class="shot" src="../screenshots/15a_cdf_watermarks.png"><div class="cap">cdf_watermarks — last Delta version captured per source table</div></div>
+    <div><img class="shot" src="../screenshots/15b_cdf_watermarks.png"><div class="cap">cdf_events reach commit_version 14 — the v0 rows are the initial snapshot</div></div>
+  </div>
+</div>
+
+<!-- 14 AGENT WRITES -->
+<div class="slide">
+  <div class="head">
+    <h1>Agent Write Tools — Persisted to Unity Catalog</h1>
+    <div class="sub">All four write tools produce durable Delta rows, selected by the model unprompted</div>
+  </div>
+  <div class="imgs grid g2" style="gap:16px">
+    <div><img class="shot" src="../screenshots/17_agent_analysis_reports.png"><div class="cap">analysis_reports — written by save_analysis_report from a natural request</div></div>
+    <div><img class="shot" src="../screenshots/18_agent_write_tables_summary.png"><div class="cap">All three agent write tables populated</div></div>
+  </div>
+</div>
+
+<!-- 15 LAKEBASE + CDF -->
+<div class="slide">
+  <div class="head">
+    <h1>Lakebase + Delta CDF</h1>
+    <div class="sub">OLTP write-back layer + Change Data Feed — design decisions on Free Edition</div>
+  </div>
+  <div class="grid g3">
+    <div class="card">
+      <div class="banner" style="background:#1f6feb">Lakebase (Design Intent)</div>
+      <ul>
+        <li>Databricks-managed Postgres 17 OLTP layer</li>
+        <li>8 tables created, <code>REPLICA IDENTITY FULL</code> on each</li>
+        <li>Designed for transactional write-back (watchlists, notes)</li>
+        <li>OAuth JWT federation unavailable on Free Edition</li>
+        <li>Agent write tools target <code>main.agent.*</code> Delta as substitute</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="banner" style="background:#2ea043">Delta CDF (Active)</div>
+      <ul>
+        <li>CDF enabled on all Silver tables</li>
+        <li>Captures INSERT / UPDATE / DELETE via <code>_change_type</code></li>
+        <li><code>cdf_watermarks</code> stores last version per source</li>
+        <li>Incremental <code>readChangeFeed</code> from watermark + 1</li>
+        <li>Watermark advances only after a successful write</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="banner" style="background:#bb8009">Production Design Intent</div>
+      <ul>
+        <li>Lakebase: watchlists + notes in Postgres (low-latency OLTP)</li>
+        <li>CDF: streaming propagation Silver → Gold deltas</li>
+        <li>Free Edition constraint → Delta-only implementation</li>
+        <li>Architecture is production-extensible — swap in Lakebase</li>
+        <li>Same CDC pattern, different transport</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- 16 WORKFLOW -->
+<div class="slide">
+  <div class="head">
+    <h1>Workflow Automation</h1>
+    <div class="sub">stock-assistant-daily-pipeline — 5-task DAG on Databricks Workflows</div>
+  </div>
+  <div class="chev" style="margin-bottom:16px">
+    <div style="background:#e8730c">Task 1<br>bronze_ingestion<br><span style="font-weight:400;font-size:11px">~13m 14s</span></div>
+    <div style="background:#57606a">Task 2<br>silver_transform<br><span style="font-weight:400;font-size:11px">~23s</span></div>
+    <div style="background:#2ea043">Task 3<br>cdf_to_delta<br><span style="font-weight:400;font-size:11px">~19s</span></div>
+    <div style="background:#bb8009">Task 4<br>gold_aggregates<br><span style="font-weight:400;font-size:11px">~27s</span></div>
+    <div style="background:#8957e5">Task 5<br>sync_vs_index<br><span style="font-weight:400;font-size:11px">~1m 37s</span></div>
+  </div>
+  <div class="grid g2" style="gap:14px">
+    <div class="card">
+      <h3 style="color:var(--blue)">Schedule</h3>
+      <p>Cron <code>0 0 22 ? * MON-FRI</code> · Asia/Calcutta (UTC+05:30)<br>
+      10 PM IST every weekday — after US market close<br>
+      Serverless compute, no cluster startup cost</p>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--blue)">Task Dependencies</h3>
+      <p>bronze → silver → { cdf_to_delta ‖ gold_aggregates } → sync_vs_index<br>
+      Tasks 3 and 4 fan out in parallel from silver<br>
+      Fail-fast on any upstream error</p>
+    </div>
+    <div class="card" style="padding:0; border:none; background:none">
+      <img class="shot" src="../screenshots/08_workflow_with_cdf.png" style="max-height:2.25in; object-fit:cover; object-position:top">
+    </div>
+    <div class="card">
+      <h3 style="color:var(--blue)">Verified Run</h3>
+      <p>Job ID <code>620376219385835</code> · run <code>165389275773657</code><br>
+      <b>15m 45s — Succeeded</b> · 12 upstream / 13 downstream tables<br>
+      Runtime is dominated by the free-tier API rate limit
+      (20 tickers × 3 endpoints × 13s sleep); everything downstream is sub-minute.</p>
+    </div>
+  </div>
+</div>
+
+<!-- 17 DECISIONS -->
+<div class="slide">
+  <div class="head">
+    <h1>Technical Decisions &amp; Learnings</h1>
+    <div class="sub">Engineering trade-offs and constraints solved during implementation</div>
+  </div>
+  <div class="grid g2" style="gap:13px">
+    <div class="card accent a-gold">
+      <h3 style="color:var(--gold);font-size:15px">API Selection</h3>
+      <p><code>api.polygon.io</code> chosen — <code>api.massive.com</code> is blocked by the Free Edition outbound filter.
+      Same key, same endpoints; Massive rebranded from Polygon.io in Oct 2025.</p>
+    </div>
+    <div class="card accent a-gold">
+      <h3 style="color:var(--gold);font-size:15px">Bronze Idempotency</h3>
+      <p>Append-only Bronze duplicated rows on every retry. Replaced with a keyed MERGE; the batch is deduped
+      before the merge, since one article can arrive under two tickers.</p>
+    </div>
+    <div class="card accent a-gold">
+      <h3 style="color:var(--gold);font-size:15px">Serverless Constraints</h3>
+      <p><code>spark.databricks.delta.schema.autoMerge.enabled</code> is not settable on Serverless.
+      Schema evolution uses a zero-row <code>mergeSchema</code> append instead.</p>
+    </div>
+    <div class="card accent a-gold">
+      <h3 style="color:var(--gold);font-size:15px">Lineage vs Freshness</h3>
+      <p>News uses insert-if-absent: a published article never changes, and updating it would rewrite the
+      <code>batch_id</code> of the run that first saw it. Prices update on match — those keys include the date.</p>
+    </div>
+    <div class="card accent a-gold">
+      <h3 style="color:var(--gold);font-size:15px">SQL Injection Surface</h3>
+      <p>App tools built SQL by string concatenation, including an unescaped watchlist name.
+      Every statement now binds named parameter markers via the Statement Execution API.</p>
+    </div>
+    <div class="card accent a-gold">
+      <h3 style="color:var(--gold);font-size:15px">Sector Granularity</h3>
+      <p>Polygon returns no sector field. Using <code>sic_description</code> fragmented rankings into 13 groups
+      once all 20 tickers were active; sector is now joined from the curated registry.</p>
+    </div>
+    <div class="card accent a-gold">
+      <h3 style="color:var(--gold);font-size:15px">Delta CDF vs Lakebase CDF</h3>
+      <p>Lakebase OAuth JWT federation is unavailable on Free Edition. Delta CDF with <code>_change_type</code>
+      replicates the CDC pattern natively, with a watermark table driving incremental reads.</p>
+    </div>
+    <div class="card accent a-gold">
+      <h3 style="color:var(--gold);font-size:15px">Tool Reachability</h3>
+      <p>Neither system prompt named the write tools, so <code>save_analysis_report</code> was never chosen and its
+      table stayed empty. Prompts now state the routing explicitly — the tool existing is not enough.</p>
+    </div>
+  </div>
+</div>
+
+<!-- 18 SKILLS -->
+<div class="slide">
+  <div class="head">
+    <h1>Skills Demonstrated</h1>
+    <div class="sub">What this capstone proves as a Senior Software Engineer portfolio piece</div>
+  </div>
+  <div class="grid g2" style="gap:14px">
+    <div class="card accent a-blue">
+      <h3>Medallion Architecture</h3>
+      <p>Bronze→Silver→Gold with windowed dedup, idempotent MERGE upserts, and derived quality metrics — verified replay-safe in Delta's operation metrics.</p>
+    </div>
+    <div class="card accent a-green">
+      <h3>Unity Catalog Governance</h3>
+      <p>Six schemas, secret scopes, MODIFY grants, and a ticker registry driving the pipeline — data governance on Free Edition UC.</p>
+    </div>
+    <div class="card accent a-purple">
+      <h3>Semantic RAG</h3>
+      <p>BGE Large embeddings + Databricks AI Search over 144 news and company documents, wired into the agent as a tool.</p>
+    </div>
+    <div class="card accent a-gold">
+      <h3>Agentic AI (11 tools)</h3>
+      <p>Llama 3.3 70B with a 5-round function-calling loop — 7 read and 4 write tools sharing one contract across notebook and app.</p>
+    </div>
+    <div class="card accent a-orange">
+      <h3>Workflow Orchestration</h3>
+      <p>5-task DAG with parallel fan-out, cron scheduling, serverless compute, and a watermarked incremental CDF stage.</p>
+    </div>
+    <div class="card accent a-green">
+      <h3>Full-stack Deployment</h3>
+      <p>Live Databricks App with a Gradio 3-column UI, parameterized SQL throughout, and real end-of-day market data.</p>
+    </div>
+  </div>
+  <div class="foot">
+    <div>📦 github.com/demonjd2026-afk/ai-stock-research-assistant &nbsp;&nbsp; 🔗 linkedin.com/in/jayanth-dolai-7b115213a</div>
+    <div style="color:var(--text); font-weight:700">Jayanth Dolai — Senior Software Engineer</div>
+  </div>
+</div>
+
+</body>
+</html>
