@@ -55,7 +55,7 @@ Massive/Polygon Stocks API  (20 tickers — 5 sectors)
            │  REST · EOD OHLCV · News · Fundamentals
            │  Free tier: end-of-day data (prev trading day close)
            ▼
-    ┌─────────────┐  PySpark append
+    ┌─────────────┐  PySpark MERGE upsert (idempotent)
     │   BRONZE    │  raw_companies · raw_price_snapshots · raw_news_articles
     └──────┬──────┘
            │  Dedup · Cast · Enrich
@@ -63,12 +63,13 @@ Massive/Polygon Stocks API  (20 tickers — 5 sectors)
     ┌─────────────┐  Delta overwrite · CDF enabled
     │   SILVER    │  companies · price_snapshots · news_articles · news_for_search
     └──┬────────┬─┴──────────────┐
-       │        │                │ readChangeFeed
+       │        │                │ readChangeFeed (watermarked)
        │        │                ▼
-       │        │        ┌──────────────────────────┐
-       │        │        │   ANALYTICS (Delta CDF)  │
-       │        │        │  cdf_events · cdf_summary│
-       │        │        └──────────────────────────┘
+       │        │        ┌───────────────────────────┐
+       │        │        │   ANALYTICS (Delta CDF)   │
+       │        │        │  cdf_events · cdf_summary │
+       │        │        │  cdf_watermarks           │
+       │        │        └───────────────────────────┘
        │        │
        │        └────────────────┐
        ▼                         ▼
@@ -137,13 +138,13 @@ All 20 are active in the current deployment — the latest pipeline run ingested
 
 ### Bronze Layer (`main.bronze`) — 3 tables
 
-Raw append-only ingestion — nothing is lost or transformed at this layer.
+Raw ingestion — nothing is lost or transformed at this layer. Writes are an **idempotent MERGE** on each feed's natural key, so a job retry or same-day re-run updates the existing row instead of appending a duplicate.
 
-| Table | Source Endpoint | Description |
-|---|---|---|
-| `raw_companies` | `GET /v3/reference/tickers/{ticker}` | Company fundamentals (name, exchange, market cap, SIC) |
-| `raw_price_snapshots` | `GET /v2/aggs/ticker/{ticker}/prev` | Previous trading day's OHLCV close |
-| `raw_news_articles` | `GET /v2/reference/news` | Last 7 days of news per ticker |
+| Table | Source Endpoint | Merge key | Description |
+|---|---|---|---|
+| `raw_companies` | `GET /v3/reference/tickers/{ticker}` | `(ticker, run_date)` | Company fundamentals (name, exchange, market cap, SIC) |
+| `raw_price_snapshots` | `GET /v2/aggs/ticker/{ticker}/prev` | `(ticker, snapshot_date)` | Previous trading day's OHLCV close |
+| `raw_news_articles` | `GET /v2/reference/news` | `(article_id, ticker)` | Last 7 days of news per ticker |
 
 ![Unity Catalog — Bronze schema](screenshots/02_unity_catalog_bronze.png)
 
@@ -182,6 +183,7 @@ Aggregated, Agent-queryable analytics tables, fully recomputed on every run.
 |---|---|
 | `cdf_events` | Row-level change events captured from the Silver tables via Delta CDF |
 | `cdf_summary` | Aggregated change counts per source table + operation |
+| `cdf_watermarks` | Last Delta version already captured per source table — drives incremental `readChangeFeed` |
 
 ---
 
@@ -262,15 +264,17 @@ Aggregated into `main.analytics.cdf_summary` — 50 events from the initial snap
 | `get_top_movers(limit)` | Read | `main.gold.top_movers` | Top gainers and losers |
 | `search_news(query, num_results)` | Read | AI Search index (RAG) | Semantic news search — falls back to keyword `LIKE` if index unavailable |
 | `get_sector_rankings()` | Read | `main.gold.sector_rankings` | Sector market cap + avg return + sentiment |
-| `flag_price_moves(...)` | Read | `main.gold.ticker_daily_summary` | Flags notable moves ≥ 2% |
+| `flag_price_moves(ticker?, threshold_pct)` | Read | `main.gold.ticker_daily_summary` | Omit `ticker` to scan every stock; pass one to check it alone. Default threshold 2% |
 | `add_to_watchlist(ticker, watchlist_name)` | Write | `main.agent.watchlists` | Save ticker to a named watchlist |
 | `remove_from_watchlist(ticker, watchlist_name)` | Write | `main.agent.watchlists` | Remove ticker (all watchlists if name omitted) |
 | `save_research_note(ticker, note)` | Write | `main.agent.research_notes` | Persist a research note |
 | `save_analysis_report(ticker, report_text)` | Write | `main.agent.analysis_reports` | Log an agent-generated report |
 
-> `flag_price_moves` differs slightly between surfaces: the notebook takes `(ticker, threshold_pct=2.0)` and checks one ticker; the app takes `(hours_back=24)` and scans every ticker for moves ≥ 2%.
+All 11 tools expose the **same signature and return shape** in `agent/07_agent_tools.ipynb` and `app/app.py`, so the model's tool contract does not drift between the notebook and the deployed app.
 
 **Agentic loop:** user query → LLM picks tools → execute → results appended to messages → repeat up to 5 rounds → final response.
+
+**SQL safety:** every query in `app/app.py` binds values through named parameter markers (`:ticker`, `:email`, …) via the Statement Execution API. No user- or LLM-supplied value is concatenated into a statement; `LIMIT` sizes are clamped to bounded integers in Python, where markers aren't permitted.
 
 ### Agent writes, verified
 
@@ -320,10 +324,12 @@ Nearly all of the runtime is the Bronze API rate limit (20 tickers × 3 endpoint
 ai-stock-research-assistant/
 ├── README.md
 ├── SETUP.md                        Step-by-step build log & reproduction guide
+├── RESUBMISSION.md                 Reviewer note — what changed since the graded snapshot
 ├── capstone_final.pdf              Capstone submission document
 ├── lakebase/
 │   ├── 05_schema_ddl.sql           8 Lakebase Postgres tables (REPLICA IDENTITY FULL)
-│   └── grants.sql                  Unity Catalog grants for the App identity
+│   ├── grants.sql                  Unity Catalog grants for the App identity
+│   └── verify_agent_writes.sql     Proof queries: agent writes, Bronze replay, CDF watermarks
 ├── pipeline/
 │   ├── 00_setup_config.ipynb       Ticker registry in Unity Catalog
 │   ├── 01_bronze_ingestion.ipynb   Task 1 — raw ingestion from Polygon API

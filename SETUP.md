@@ -224,10 +224,29 @@ Adding or removing tickers never requires a code change — the Bronze notebook 
 **Key design decisions:**
 - `raw_json` column stores the full API response — nothing lost at Bronze layer
 - `batch_id` (UUID per run) on every row enables lineage tracking
-- `mode("append")` — Bronze is immutable, never overwrites
-- `mergeSchema("true")` — handles API schema changes gracefully
+- **Idempotent MERGE upsert** on each feed's natural key — a retry or same-day re-run updates in place rather than appending duplicates
+- Schema auto-merge enabled — handles API schema changes gracefully, as `mergeSchema` did before
 - 13-second sleep between API calls — respects free tier rate limit (5 req/min)
 - All numeric fields explicitly cast to prevent Spark type inference errors
+
+### Bronze Idempotency
+
+Bronze originally wrote with `mode("append")`, which meant a job retry or manual re-run
+appended a second copy of the same trading day. Silver's dedup hid the effect downstream,
+but Bronze row counts inflated and true replay was impossible.
+
+`upsert_bronze(rows, table, keys)` (cell 6) now MERGEs on the natural grain of each feed:
+
+| Table | Merge key | Why |
+|---|---|---|
+| `raw_companies` | `(ticker, run_date)` | One company profile per ticker per day; history preserved across days |
+| `raw_price_snapshots` | `(ticker, snapshot_date)` | One OHLCV bar per ticker per trading day |
+| `raw_news_articles` | `(article_id, ticker)` | The same article can legitimately arrive under two tickers |
+
+Two details worth noting:
+- The batch is deduplicated on the key **before** the MERGE — Delta raises an error if two source rows match the same target row, which happens whenever one article is returned for multiple tickers.
+- The join uses `<=>` (null-safe equality) so a null key never silently produces duplicates.
+- On first run the table doesn't exist yet, so the helper falls back to a plain create-by-append.
 
 ### Notebook Logic — `01_bronze_ingestion.ipynb` (11 cells)
 
@@ -264,13 +283,15 @@ TICKERS = [
 - Timeout of 15 seconds per request
 - Returns parsed JSON or `None` on failure
 
-**Cell 6 — Create Bronze schema.** `CREATE SCHEMA IF NOT EXISTS main.bronze`.
+**Cell 6 — Create Bronze schema + idempotent upsert helper.**
+`CREATE SCHEMA IF NOT EXISTS main.bronze`, enables Delta schema auto-merge, and defines
+`upsert_bronze()` — see [Bronze Idempotency](#bronze-idempotency) above.
 
 **Cell 7 — Company fundamentals ingestion.**
 Calls `GET /v3/reference/tickers/{ticker}` per ticker.
 Extracts: name, exchange, market_cap, description, homepage_url, total_employees, list_date, sic_code, sic_description, locale, currency_name, active, type.
 Adds `batch_id`, `run_date`, `raw_json` (full API response), `ingested_at`.
-Writes to `main.bronze.raw_companies` in **append** mode.
+Writes via `upsert_bronze(..., keys=["ticker", "run_date"])`.
 
 **Cell 8 — OHLCV price snapshots ingestion.**
 Calls `GET /v2/aggs/ticker/{ticker}/prev` per ticker.
@@ -281,12 +302,12 @@ Extracts: open (o), high (h), low (l), close (c), volume (v), vwap (vw), transac
 "volume"      : float(r["v"]) if r.get("v") is not None else None,
 "transactions": int(r["n"])   if r.get("n") is not None else None,
 ```
-Writes to `main.bronze.raw_price_snapshots` in **append** mode.
+Writes via `upsert_bronze(..., keys=["ticker", "snapshot_date"])`.
 
 **Cell 9 — News articles ingestion.**
 Calls `GET /v2/reference/news` with params: `ticker`, `published_utc.gte` (7 days ago), `order=desc`, `limit=10`.
 Extracts: article_id, title, author, published_utc, article_url, description, keywords (as JSON string), publisher_name, sentiment (from the insights array).
-Writes to `main.bronze.raw_news_articles` in **append** mode.
+Writes via `upsert_bronze(..., keys=["article_id", "ticker"])`.
 
 **Cell 10 — Verification.**
 Prints row counts per table (this run vs total) and shows 5-row samples from each table to confirm data quality — this is the output captured in the screenshot above.
@@ -607,6 +628,7 @@ The capstone requires "CDF from Lakebase into a Delta table." Since Lakebase dir
 |---|---|
 | `main.analytics.cdf_events` | Every row-level change event from Silver tables |
 | `main.analytics.cdf_summary` | Aggregated pipeline monitoring view |
+| `main.analytics.cdf_watermarks` | Last Delta version already captured per source table |
 
 ### CDF Events Schema
 
@@ -636,19 +658,52 @@ captured_at     TIMESTAMP — when CDF pipeline ran
 
 ![cdf_summary aggregation query](screenshots/07c_cdf_analytics_summary.png)
 
-### Notebook Structure (9 cells)
+### Incremental Capture (`readChangeFeed` + watermark)
+
+The initial snapshot only covers rows that existed **before** CDF was enabled. Every run
+after that reads the actual change feed, so scheduled executions capture real
+INSERT / UPDATE / DELETE activity rather than re-snapshotting:
+
+```python
+latest = current_version(table)              # DESCRIBE HISTORY <table> LIMIT 1
+wm     = get_watermark(table)                # main.analytics.cdf_watermarks
+
+if wm is None:                               # first run after the snapshot
+    set_watermark(table, latest)             # start the feed here, don't replay
+elif latest > wm:
+    changes = (spark.read.format("delta")
+               .option("readChangeFeed", "true")
+               .option("startingVersion", wm + 1)
+               .option("endingVersion", latest)
+               .table(table))
+    # ... write events, then advance the watermark
+    set_watermark(table, latest)
+```
+
+Details that matter:
+
+| Concern | Handling |
+|---|---|
+| `update_preimage` rows | Filtered out — only the post-image is recorded, so one UPDATE = one event |
+| Operation naming | `_change_type` normalized: `insert`→INSERT, `update_postimage`→UPDATE, `delete`→DELETE |
+| Failed run | Watermark advances **only after** a successful write, so the next run retries the same range |
+| First run after snapshot | Watermark initialized to the current version instead of replaying history as duplicates |
+| Re-run with no changes | `latest <= wm` → no-op, prints "no new versions" |
+
+### Notebook Structure (10 cells)
 
 | Cell | Purpose |
 |---|---|
 | 0 | Markdown description |
 | 1 | Imports + SparkSession + config |
 | 2 | Enable CDF on all Silver tables |
-| 3 | Create `main.analytics` schema + `cdf_events` table |
+| 3 | Create `main.analytics` schema + `cdf_events` + `cdf_watermarks` tables |
 | 4 | Check if table already populated (idempotent guard) |
 | 5 | Initial snapshot — treats existing rows as INSERT events |
-| 6 | Analytics queries on captured events |
-| 7 | Build `cdf_summary` aggregate table |
-| 8 | Summary and architecture note |
+| 6 | **Incremental capture — `readChangeFeed` since the stored watermark** |
+| 7 | Analytics queries on captured events |
+| 8 | Build `cdf_summary` aggregate table |
+| 9 | Summary and architecture note |
 
 ### Known Issue & Fix
 
@@ -658,7 +713,11 @@ captured_at     TIMESTAMP — when CDF pipeline ran
 
 ### Idempotency
 
-The notebook checks `cdf_events.count()` before running the snapshot. If data already exists it skips the snapshot — safe to re-run anytime, which is what lets it run as a scheduled workflow task.
+Two guards, one per stage:
+- **Snapshot** — the notebook checks `cdf_events.count()` first and skips if already populated
+- **Incremental** — the watermark means a re-run with no new Delta versions is a no-op
+
+Together these make the notebook safe to re-run at any time, which is what lets it run as a scheduled workflow task (`cdf_to_delta`).
 
 ---
 
@@ -692,7 +751,7 @@ Implements a fully agentic AI assistant using the Databricks Foundation Models A
 | `get_top_movers(limit=5)` | `main.gold.top_movers` | Top gainers and losers with return rank |
 | `search_news(query, num_results=3)` | AI Search index (BGE Large embeddings) | Semantically relevant articles + company profiles with sentiment. Falls back to keyword `LIKE` search if the index is not ready |
 | `get_sector_rankings()` | `main.gold.sector_rankings` | Sector market cap + avg return + sentiment, ranked |
-| `flag_price_moves(ticker, threshold_pct=2.0)` | `main.gold.ticker_daily_summary` | Alert if ticker moved > N% in a day; returns direction + message |
+| `flag_price_moves(ticker=None, threshold_pct=2.0)` | `main.gold.ticker_daily_summary` | Omit `ticker` to scan every tracked stock; pass one to check it alone. Returns `flagged`, `movers[]`, `message` |
 
 **Write tools (4):**
 
@@ -844,7 +903,7 @@ Databricks App (Gradio)
 | Data access | PySpark DataFrame API | SDK Statement Execution API (`run_sql()`) |
 | LLM call | `openai` client | `WorkspaceClient.api_client.do()` → serving endpoint |
 | Auth | `dbutils` token | App service principal (automatic in Databricks Apps) |
-| `flag_price_moves` | `(ticker, threshold_pct=2.0)` — one ticker | `(hours_back=24)` — scans all tickers for moves ≥ 2% |
+| SQL construction | PySpark DataFrame API | Named parameter markers (`:ticker`) — no string interpolation |
 | Warehouse | n/a | First RUNNING SQL warehouse, resolved and cached at startup |
 | Deployment | Run in notebook | Deployed as a Databricks App with a public URL |
 
@@ -1069,10 +1128,12 @@ ai-stock-research-assistant/
 ├── .gitignore
 ├── README.md
 ├── SETUP.md
+├── RESUBMISSION.md                     ✅ Reviewer note — changes since the graded snapshot
 ├── capstone_final.pdf                  Capstone submission document
 ├── lakebase/
 │   ├── 05_schema_ddl.sql               ✅ 8 Lakebase Postgres tables
-│   └── grants.sql                      ✅ Unity Catalog grants for the App
+│   ├── grants.sql                      ✅ Unity Catalog grants for the App
+│   └── verify_agent_writes.sql         ✅ Proof queries for agent writes / idempotency
 ├── pipeline/
 │   ├── 00_setup_config.ipynb           ✅ Ticker registry (Unity Catalog)
 │   ├── 01_bronze_ingestion.ipynb       ✅ Raw ingestion (Massive/Polygon API)

@@ -20,15 +20,42 @@ def get_wh():
     if not t: raise RuntimeError("No warehouse")
     _wh = t.id; return _wh
 
-def run_sql(q):
+def run_sql(q, params=None):
+    """Execute SQL via the Statement Execution API.
+
+    `params` is a {name: value} dict bound to `:name` markers in the statement.
+    Never interpolate user/LLM-supplied values into `q` directly — bind them here
+    so quoting and escaping are handled by the SQL engine.
+    """
     try:
+        kwargs = {}
+        if params:
+            kwargs["parameters"] = [
+                dbsql.StatementParameterListItem(
+                    name=k, value=None if v is None else str(v))
+                for k, v in params.items()
+            ]
         r = get_w().statement_execution.execute_statement(
-            warehouse_id=get_wh(), statement=q, wait_timeout="30s")
+            warehouse_id=get_wh(), statement=q, wait_timeout="30s", **kwargs)
         if r.status.state == dbsql.StatementState.SUCCEEDED:
             cols = [c.name for c in r.manifest.schema.columns]
             return [dict(zip(cols, row)) for row in (r.result.data_array or [])]
         return []
     except Exception as e: return [{"error": str(e)}]
+
+def _clamp_int(value, default, lo, hi):
+    """Coerce to a bounded int — used where SQL forbids parameter markers (LIMIT)."""
+    try: return max(lo, min(int(value), hi))
+    except (TypeError, ValueError): return default
+
+# Latest-row-per-ticker projection, shared by every Gold read tool.
+LATEST = """
+    FROM main.gold.ticker_daily_summary t
+    INNER JOIN (
+        SELECT ticker, MAX(snapshot_date) AS latest_date
+        FROM main.gold.ticker_daily_summary GROUP BY ticker
+    ) l ON t.ticker = l.ticker AND t.snapshot_date = l.latest_date
+"""
 
 def call_llm(messages, tools=None):
     body = {"messages": messages, "max_tokens": 2048}
@@ -42,35 +69,37 @@ def get_price_data(ticker):
     r = run_sql("""
         SELECT t.ticker, t.name, t.close, t.open, t.high, t.low,
                t.volume, t.daily_return_pct, t.is_up_day, t.market_cap_billions, t.sector
-        FROM main.gold.ticker_daily_summary t
-        INNER JOIN (
-            SELECT ticker, MAX(snapshot_date) AS latest_date
-            FROM main.gold.ticker_daily_summary GROUP BY ticker
-        ) l ON t.ticker = l.ticker AND t.snapshot_date = l.latest_date
-        WHERE t.ticker = '""" + ticker.upper() + """' LIMIT 1""")
+        """ + LATEST + """
+        WHERE t.ticker = :ticker LIMIT 1""", {"ticker": ticker.upper()})
     return r[0] if r else {"error": "No data for " + ticker}
 
 def get_sentiment(ticker):
-    r = run_sql("SELECT ticker,news_count,avg_sentiment_score,sentiment_signal,sentiment_confidence FROM main.gold.sentiment_summary WHERE ticker='" + ticker.upper() + "' LIMIT 1")
+    r = run_sql("SELECT ticker,news_count,avg_sentiment_score,sentiment_signal,sentiment_confidence "
+                "FROM main.gold.sentiment_summary WHERE ticker = :ticker LIMIT 1",
+                {"ticker": ticker.upper()})
     return r[0] if r else {"error": "No sentiment for " + ticker}
 
 def compare_tickers(tickers):
-    t = ", ".join(["'" + x.upper() + "'" for x in tickers])
+    tickers = [t for t in (tickers or []) if t]
+    if not tickers: return {"error": "No tickers provided"}
+    # Marker names are generated from the index, never from caller input.
+    names  = ["t%d" % i for i in range(len(tickers))]
+    params = {n: t.upper() for n, t in zip(names, tickers)}
     return run_sql("""
         SELECT t.ticker, t.name, t.close, t.daily_return_pct, t.market_cap_billions, t.avg_sentiment_score
-        FROM main.gold.ticker_daily_summary t
-        INNER JOIN (
-            SELECT ticker, MAX(snapshot_date) AS latest_date
-            FROM main.gold.ticker_daily_summary GROUP BY ticker
-        ) l ON t.ticker = l.ticker AND t.snapshot_date = l.latest_date
-        WHERE t.ticker IN (""" + t + """) ORDER BY t.daily_return_pct DESC""")
+        """ + LATEST + """
+        WHERE t.ticker IN (""" + ", ".join(":" + n for n in names) + """)
+        ORDER BY t.daily_return_pct DESC""", params)
 
 def get_top_movers(limit=5):
-    r = run_sql("SELECT return_rank,ticker,name,close,daily_return_pct,mover_type FROM main.gold.top_movers ORDER BY return_rank LIMIT " + str(limit * 2))
+    limit = _clamp_int(limit, 5, 1, 25)
+    r = run_sql("SELECT return_rank,ticker,name,close,daily_return_pct,mover_type "
+                "FROM main.gold.top_movers ORDER BY return_rank LIMIT " + str(limit * 2))
     return {"gainers": [x for x in r if x.get("mover_type") == "GAINER"][:limit],
             "losers":  [x for x in r if x.get("mover_type") == "LOSER"][:limit]}
 
 def search_news(query, num_results=3):
+    num_results = _clamp_int(num_results, 3, 1, 20)
     try:
         from databricks.ai_search.client import VectorSearchClient
         idx  = VectorSearchClient(disable_notice=True).get_index(
@@ -79,8 +108,10 @@ def search_news(query, num_results=3):
             columns=["ticker","title","sentiment"], num_results=num_results
         ).get("result", {}).get("data_array", [])
         return [dict(zip(["ticker","title","sentiment"], h)) for h in hits]
-    except:
-        return run_sql("SELECT ticker,title,sentiment FROM main.silver.news_articles WHERE LOWER(title) LIKE '%" + query.lower() + "%' LIMIT " + str(num_results))
+    except Exception:
+        return run_sql("SELECT ticker,title,sentiment FROM main.silver.news_articles "
+                       "WHERE LOWER(title) LIKE :pattern LIMIT " + str(num_results),
+                       {"pattern": "%" + (query or "").lower() + "%"})
 
 def get_sector_rankings():
     """Query main.gold.sector_rankings built by Phase 4 Gold aggregates."""
@@ -122,47 +153,84 @@ def get_sector_rankings():
     """)
     return rows2 if rows2 else [{"error": "No sector data — run 03_gold_aggregates.ipynb to rebuild"}]
 
-def flag_price_moves(hours_back=24):
-    rows = run_sql("""
+def flag_price_moves(ticker=None, threshold_pct=2.0):
+    """Flag notable end-of-day price moves.
+
+    Single contract shared with agent/07_agent_tools.ipynb:
+      - ticker given   → check that one ticker against the threshold
+      - ticker omitted → scan every tracked ticker for moves beyond the threshold
+    """
+    try: threshold = abs(float(threshold_pct))
+    except (TypeError, ValueError): threshold = 2.0
+
+    base = """
         SELECT t.ticker, t.name, t.close, t.daily_return_pct, t.is_up_day,
                s.sentiment_signal, t.news_count
-        FROM main.gold.ticker_daily_summary t
-        INNER JOIN (
-            SELECT ticker, MAX(snapshot_date) AS latest_date
-            FROM main.gold.ticker_daily_summary GROUP BY ticker
-        ) l ON t.ticker = l.ticker AND t.snapshot_date = l.latest_date
+        """ + LATEST + """
         LEFT JOIN main.gold.sentiment_summary s ON t.ticker = s.ticker
-        WHERE ABS(t.daily_return_pct) >= 2.0
-        ORDER BY ABS(t.daily_return_pct) DESC LIMIT 10""")
-    if not rows:
-        return {"message": "No notable price moves (>=2%) detected", "movers": []}
-    movers = [{"ticker": r["ticker"], "name": r.get("name",""),
-               "close": r.get("close"),
-               "daily_return_pct": float(r.get("daily_return_pct") or 0),
-               "direction": "UP" if str(r.get("is_up_day","")).lower()=="true" else "DOWN",
-               "sentiment": r.get("sentiment_signal","NEUTRAL")} for r in rows]
-    return {"message": str(len(movers)) + " notable moves (>=2%) detected", "movers": movers}
+    """
+
+    def as_mover(r):
+        ret = float(r.get("daily_return_pct") or 0)
+        return {"ticker": r["ticker"], "name": r.get("name", ""),
+                "close": r.get("close"), "daily_return_pct": ret,
+                "direction": "UP" if ret > 0 else ("DOWN" if ret < 0 else "FLAT"),
+                "sentiment": r.get("sentiment_signal", "NEUTRAL")}
+
+    if ticker:
+        rows = run_sql(base + " WHERE t.ticker = :ticker LIMIT 1",
+                       {"ticker": ticker.upper()})
+        if not rows or "error" in rows[0]:
+            return {"error": "No data for " + ticker}
+        m       = as_mover(rows[0])
+        flagged = abs(m["daily_return_pct"]) >= threshold
+        return {"threshold_pct": threshold, "flagged": flagged,
+                "movers": [m] if flagged else [],
+                "message": "%s moved %+.2f%% — %s +/-%.1f%% threshold" % (
+                    m["ticker"], m["daily_return_pct"],
+                    "exceeds" if flagged else "within", threshold)}
+
+    rows = run_sql(base + """
+        WHERE ABS(t.daily_return_pct) >= CAST(:thr AS DOUBLE)
+        ORDER BY ABS(t.daily_return_pct) DESC LIMIT 10""", {"thr": threshold})
+    movers = [as_mover(r) for r in rows if "error" not in r]
+    return {"threshold_pct": threshold, "flagged": bool(movers), "movers": movers,
+            "message": ("%d notable move(s) >=%.1f%% detected" % (len(movers), threshold)
+                        if movers else "No notable price moves >=%.1f%% detected" % threshold)}
 
 def add_to_watchlist(ticker, watchlist_name="My Watchlist"):
-    run_sql("INSERT INTO main.agent.watchlists(id,user_email,watchlist,ticker,added_at) VALUES('" + str(uuid.uuid4()) + "','" + USER_EMAIL + "','" + watchlist_name + "','" + ticker.upper() + "','" + datetime.now().isoformat() + "')")
+    run_sql("INSERT INTO main.agent.watchlists(id,user_email,watchlist,ticker,added_at) "
+            "VALUES(:id, :email, :wl, :ticker, CAST(:ts AS TIMESTAMP))",
+            {"id": str(uuid.uuid4()), "email": USER_EMAIL, "wl": watchlist_name,
+             "ticker": ticker.upper(), "ts": datetime.now().isoformat()})
     return {"status": "success", "message": ticker.upper() + " added to '" + watchlist_name + "'"}
 
 def remove_from_watchlist(ticker, watchlist_name=None):
     """Remove ticker from watchlist. Uses LOWER() for case-insensitive watchlist matching."""
     if watchlist_name:
-        run_sql("DELETE FROM main.agent.watchlists WHERE user_email='" + USER_EMAIL + "' AND ticker='" + ticker.upper() + "' AND LOWER(watchlist)='" + watchlist_name.lower() + "'")
+        run_sql("DELETE FROM main.agent.watchlists WHERE user_email = :email "
+                "AND ticker = :ticker AND LOWER(watchlist) = :wl",
+                {"email": USER_EMAIL, "ticker": ticker.upper(), "wl": watchlist_name.lower()})
         return {"status": "success", "message": ticker.upper() + " removed from '" + watchlist_name + "'"}
     else:
         # Remove from all watchlists if no name specified
-        run_sql("DELETE FROM main.agent.watchlists WHERE user_email='" + USER_EMAIL + "' AND ticker='" + ticker.upper() + "'")
+        run_sql("DELETE FROM main.agent.watchlists WHERE user_email = :email AND ticker = :ticker",
+                {"email": USER_EMAIL, "ticker": ticker.upper()})
         return {"status": "success", "message": ticker.upper() + " removed from all watchlists"}
 
 def save_research_note(ticker, note):
-    run_sql("INSERT INTO main.agent.research_notes(id,user_email,ticker,note,created_at) VALUES('" + str(uuid.uuid4()) + "','" + USER_EMAIL + "','" + ticker.upper() + "','" + note[:500].replace("'","''") + "','" + datetime.now().isoformat() + "')")
+    run_sql("INSERT INTO main.agent.research_notes(id,user_email,ticker,note,created_at) "
+            "VALUES(:id, :email, :ticker, :note, CAST(:ts AS TIMESTAMP))",
+            {"id": str(uuid.uuid4()), "email": USER_EMAIL, "ticker": ticker.upper(),
+             "note": (note or "")[:500], "ts": datetime.now().isoformat()})
     return {"status": "success", "message": "Note saved for " + ticker.upper()}
 
 def save_analysis_report(ticker, report_text):
-    run_sql("INSERT INTO main.agent.analysis_reports(id,user_email,ticker,report_text,agent_model,generated_at) VALUES('" + str(uuid.uuid4()) + "','" + USER_EMAIL + "','" + ticker.upper() + "','" + report_text[:1000].replace("'","''") + "','" + MODEL + "','" + datetime.now().isoformat() + "')")
+    run_sql("INSERT INTO main.agent.analysis_reports(id,user_email,ticker,report_text,agent_model,generated_at) "
+            "VALUES(:id, :email, :ticker, :report, :model, CAST(:ts AS TIMESTAMP))",
+            {"id": str(uuid.uuid4()), "email": USER_EMAIL, "ticker": ticker.upper(),
+             "report": (report_text or "")[:1000], "model": MODEL,
+             "ts": datetime.now().isoformat()})
     return {"status": "success", "message": "Report saved for " + ticker.upper()}
 
 # ── Tool schemas ───────────────────────────────────────────────────────────────
@@ -173,7 +241,7 @@ TOOLS = [
     {"type":"function","function":{"name":"get_top_movers","description":"Get today's top gaining and losing stocks","parameters":{"type":"object","properties":{"limit":{"type":"integer"}}}}},
     {"type":"function","function":{"name":"search_news","description":"Semantic search over recent stock news and company profiles","parameters":{"type":"object","properties":{"query":{"type":"string"},"num_results":{"type":"integer"}},"required":["query"]}}},
     {"type":"function","function":{"name":"get_sector_rankings","description":"Get sector rankings by total market cap, average daily return, and sentiment — use for sector analysis or market cap breakdown","parameters":{"type":"object","properties":{}}}},
-    {"type":"function","function":{"name":"flag_price_moves","description":"Flag stocks with notable price moves (>=2%) since the last pipeline run","parameters":{"type":"object","properties":{"hours_back":{"type":"integer"}}}}},
+    {"type":"function","function":{"name":"flag_price_moves","description":"Flag notable end-of-day price moves. Omit ticker to scan every tracked stock; pass a ticker to check just that one.","parameters":{"type":"object","properties":{"ticker":{"type":"string","description":"Optional — check a single ticker instead of scanning all"},"threshold_pct":{"type":"number","description":"Move size to flag, default 2.0"}}}}},
     {"type":"function","function":{"name":"add_to_watchlist","description":"Add a stock ticker to user watchlist","parameters":{"type":"object","properties":{"ticker":{"type":"string"},"watchlist_name":{"type":"string"}},"required":["ticker"]}}},
     {"type":"function","function":{"name":"remove_from_watchlist","description":"Remove a stock ticker from user watchlist","parameters":{"type":"object","properties":{"ticker":{"type":"string"},"watchlist_name":{"type":"string"}},"required":["ticker"]}}},
     {"type":"function","function":{"name":"save_research_note","description":"Save a research note about a stock ticker","parameters":{"type":"object","properties":{"ticker":{"type":"string"},"note":{"type":"string"}},"required":["ticker","note"]}}},
@@ -194,8 +262,10 @@ TMAP = {
     "save_analysis_report" : save_analysis_report,
 }
 
-SYSTEM = ("You are an AI stock market assistant with access to real-time market data. "
-          "Always use tools to get current data before answering. Be concise and data-driven. "
+SYSTEM = ("You are an AI stock market research assistant. Your data is end-of-day (EOD): "
+          "the most recent close from the last completed trading day, not live intraday prices. "
+          "Never describe figures as real-time, live, or current-price — say 'as of the latest close'. "
+          "Always use tools to get data before answering. Be concise and data-driven. "
           "For sector rankings use get_sector_rankings. For price moves use flag_price_moves.")
 
 # ── Agent ──────────────────────────────────────────────────────────────────────
@@ -293,7 +363,8 @@ def market_fn():
 
 def watchlist_fn():
     try:
-        rows = run_sql("SELECT DISTINCT ticker, watchlist FROM main.agent.watchlists WHERE user_email='" + USER_EMAIL + "' ORDER BY ticker")
+        rows = run_sql("SELECT DISTINCT ticker, watchlist FROM main.agent.watchlists "
+                       "WHERE user_email = :email ORDER BY ticker", {"email": USER_EMAIL})
         if not rows: return "No tickers yet."
         return "\n".join("• " + r["ticker"] + "  —  " + r["watchlist"] for r in rows)
     except Exception as e: return "Error: " + str(e)
